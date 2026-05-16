@@ -150,19 +150,23 @@ lumo/
 
 5. **`snapshot_input`** — read **measured** layouts from snapshot-testing
    frameworks instead of asking the user to hand-build JSON.
-   - **Paparazzi** (Compose, Cash App / JetBrains) writes PNGs plus a
-     deterministic intermediate description we can parse for real
-     measured coordinates.
-   - **`xcodebuild test --only-testing` + swift-snapshot-testing /
-     `XCTAttachment`** does the same for SwiftUI / UIKit.
+   - Verified: Paparazzi and `swift-snapshot-testing` **do not** emit
+     coordinate JSON out of the box — they render bitmaps. The Lumo
+     approach is to ship two small capture libraries
+     (`lumo-android-capture`, `lumo-ios-capture`) that a developer wires
+     into one line of their existing snapshot test. The capture library
+     walks the rendered view tree and writes Lumo-schema JSON next to
+     the bitmap.
    - Output: layout JSON with `source: "measured"` (the highest
      confidence label) instead of `code-estimated` or
-     `description-estimated`. This is strictly better than AST parsing,
-     because it captures runtime values (theme tokens resolved,
-     `fillMaxWidth` realised, dynamic type applied).
-   - This goes **before** `codebase_audit` in build order because it
-     gives parity / theory checks proper input without the
-     theme-resolution headache that AST has to solve.
+     `description-estimated`.
+   - Existing `lumo-theory` and `lumo-parity` CLIs gain `--from <dir>`
+     to scoop every `*.json` from a snapshot-test build output.
+   - Full design in [docs/design/snapshot-input.md](./docs/design/snapshot-input.md)
+     — read that before opening a related PR.
+   - Goes **before** `codebase_audit` and `figma_sync` in build order.
+     `codebase_audit` becomes a *fallback* for users without snapshot
+     tests, not the primary measurement source.
 6. **`figma_sync`** — Figma REST API → extract variables/styles → diff against code.
 7. **`codebase_audit`** — AST scan of Compose / SwiftUI / XML / UIKit → extract spacing scale, color frequency, typography usage → propose design system rules → user confirms → save to local store. Lands after `snapshot_input` so the audit can validate the AST estimates against measured values from snapshot tests.
 8. **`rules_search`** — hybrid BM25 + local embedding search over rules DB.
