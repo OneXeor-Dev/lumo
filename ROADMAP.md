@@ -17,11 +17,14 @@ These are settled. Do not re-litigate without strong cause.
 - **Hero feature:** theory-of-design checks (Fitts / Hick / Gestalt / Nielsen)
 - **No backend in v1:** no telemetry, no cross-user learning, no cloud sync
 
-## Open decisions (resolve before Phase 1 code)
+## Resolved decisions
 
-- Tools language: **Python** (proposed — tree-sitter for AST, numpy for math, npm wrapper installs Python deps under the hood like ruff/black do)
-- npm package name: `lumo` (top-level — to be confirmed available)
-- GitHub org: OneXeor
+- Tools language: **Python** (settled). Reason: AST parsing for Compose / SwiftUI in Phase 2 needs `tree-sitter` and OKLCH math needs `numpy`. npm wrapper installs Python deps under the hood, same pattern as ruff / black / pyright.
+- GitHub org: **OneXeor** (settled).
+
+## Open decisions (resolve before publishing v0.1)
+
+- npm package name: still need to confirm `lumo` is available on the npm registry, or fall back to `@onexeor/lumo`.
 
 ---
 
@@ -93,45 +96,48 @@ before merging.
 
 ## Phase 1 — MVP (target: v0.1)
 
-Goal: `npx lumo init` works end-to-end with one killer feature demonstrable on video.
+Goal: `npx lumo init` works end-to-end with three demonstrable tools.
 
-### Tools (priority order)
+### Tools
 
-1. **`wcag_validator`** — W3C luminance formula + OKLCH auto-correct.
-   - Simplest. Pure numeric. Proves the tool plumbing works.
-   - Cannot be replicated by prompting alone.
+| # | Tool | Status | Notes |
+|---|------|--------|-------|
+| 1 | `wcag_validator` | ✅ Shipped | W3C luminance formula + OKLCH auto-correct that preserves chroma and hue. 28 tests against WebAIM / Material / Apple anchors. |
+| 2 | `theory_check` | ✅ Shipped | Fitts (undersized + relative difficulty for primary), Hick overload, Gestalt proximity, reach rules. 17 tests. Nielsen heuristics intentionally not in the tool (not reliably numeric). |
+| 3 | `platform_parity` | ✅ Shipped | Android (dp) vs iOS (pt) diff. Component presence, sizing diff, design-system token validation. Platform-specific defaults whitelisted (44 pt vs 48 dp etc.). 14 tests. |
+| 4 | npm CLI installer | ⏳ Next | `npx lumo init` — copies the skill, installs Python deps in a managed venv, runs a smoke check. |
 
-2. **`platform_parity`** — diff Compose ↔ SwiftUI for the same screen.
-   - Hero demo for video / Instagram reel.
-   - Checks: padding, animation duration, touch target, typography scale, color tokens.
+### Data (ships with the package)
 
-3. **`theory_check`** — Fitts / Hick / Gestalt rules applied to screen layout.
-   - Differentiator. Nobody else does this.
-   - Numeric thresholds, not vibes.
+Rules are currently inline in each tool — adequate while the rule count is
+small. They will move to `data/` once a second consumer (Phase 2 audit)
+needs to read them.
 
-### Data (curated, ships with the package)
-
-- `platform_rules/` — baseline HIG + Material rules (touch targets, animation tokens, typography scale, safe areas) for Compose, XML, SwiftUI, UIKit.
-- `theory_rules/` — Fitts (target size × distance → reaction time), Hick (choice count → decision time), Gestalt (proximity/similarity thresholds), Nielsen 10 heuristics.
-- `parity_table/` — Compose ↔ SwiftUI component mapping (50–80 pairs for v0.1).
-
-### Skill structure
+### Skill structure (current)
 
 ```
 lumo/
-├── SKILL.md              # main Claude Code entrypoint
-├── references/           # per-platform deep dives, theory primer
-├── tools/                # Python scripts callable from the skill
-├── data/                 # rules, parity tables
-└── installer/            # npm CLI (init, config)
+├── README.md             # user-facing
+├── ROADMAP.md            # this file
+├── skill/
+│   └── SKILL.md          # main Claude Code entrypoint
+├── tools/
+│   ├── pyproject.toml
+│   └── lumo/
+│       ├── wcag/         # ✅ tool 1
+│       ├── theory/       # ✅ tool 2
+│       └── parity/       # ✅ tool 3
+├── data/                 # placeholder — rules still inline
+├── examples/             # ✅ layout pairs + lumo.config.json
+└── installer/            # ⏳ npm CLI (next up)
 ```
 
 ### Distribution
 
-- npm package
-- Public GitHub repo (currently private during build)
-- README with GIF demo
-- One end-to-end use case in `examples/`
+- npm package (`lumo` or `@onexeor/lumo` depending on registry availability).
+- Public GitHub repo (currently private during build).
+- README with GIF demo of each tool.
+- Example layouts already in `examples/`.
 
 ---
 
