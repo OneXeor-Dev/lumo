@@ -111,10 +111,10 @@ Goal: `npx @onexeor/lumo init` works end-to-end with four demonstrable tools (wc
 
 | # | Path | Status | Notes |
 |---|------|--------|-------|
-| 1 | `npx @onexeor/lumo init` | ⚙️ Ready, not yet published | Custom Node installer with `init / doctor / uninstall`, 4 supported AI clients (Claude, Cursor, Codex, generic), guided interactive flow, `--dev` for contributors. Scoped name because top-level `lumo` is taken on npm. Tarball builds clean (`npm pack --dry-run` verified), installs cleanly from `.tgz` end-to-end. One `npm publish --access public` away from live. |
+| 1 | `npx @onexeor/lumo init` | ✅ Published | Custom Node installer, 4 supported AI clients (Claude, Cursor, Codex, generic). Live on npm as [@onexeor/lumo](https://www.npmjs.com/package/@onexeor/lumo). |
 | 2 | `npx skills add OneXeor/lumo` | ✅ Shipped | `skills.json` manifest at repo root for vercel-labs/skills (skills.sh ecosystem). |
 | 3 | `claude plugin marketplace add OneXeor/lumo` | ✅ Shipped | `.claude-plugin/marketplace.json` + `plugin.json` following the apple-skills schema. |
-| 4 | `pipx install lumo-mobile` | ⚙️ Ready, not yet published | pyproject.toml has classifiers, urls, readme, license; `python -m build` produces clean wheel + sdist; `twine check dist/*` passes; name reserved (404 on PyPI). One `twine upload` away from live. |
+| 4 | `pipx install lumo-mobile` | ✅ Published | Live on PyPI as [lumo-mobile](https://pypi.org/project/lumo-mobile/). |
 | 5 | Git clone + manual copy | ✅ Shipped | Documented in README as the zero-installer fallback. |
 
 ### Data (ships with the package)
@@ -141,13 +141,6 @@ lumo/
 ├── examples/             # ✅ layout pairs + lumo.config.json
 └── installer/            # ⏳ npm CLI (next up)
 ```
-
-### Distribution
-
-- npm package (`lumo` or `@onexeor/lumo` depending on registry availability).
-- Public GitHub repo (currently private during build).
-- README with GIF demo of each tool.
-- Example layouts already in `examples/`.
 
 ---
 

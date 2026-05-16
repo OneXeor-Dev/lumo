@@ -3,9 +3,10 @@
 > Mobile UI/UX design intelligence for AI coding assistants, grounded in
 > cognitive science — not just style guides.
 
-**Status:** WIP, pre-v0.1. Three tools work, an MCP server exposes them
-to every major AI client, and five different install paths are wired up.
-Demo content (GIFs, video) comes next.
+**Status:** v0.1 published. Four tools work (WCAG, theory, parity, MCP),
+five install paths are live (`npx @onexeor/lumo init` · `npx skills add` ·
+Claude plugin marketplace · `pipx install lumo-mobile` · git clone), and
+the MCP server exposes everything to every major AI client.
 
 Lumo helps mobile developers build polished, accessible UI by applying
 **Fitts**, **Hick**, **Gestalt**, and **Nielsen** alongside Apple HIG and
@@ -25,6 +26,49 @@ guesses.
 Each tool returns structured findings (severity, recommendation, metric)
 and propagates an honest confidence label — `measured`, `code-estimated`,
 or `description-estimated` — so the consumer can weigh the result.
+
+## Demo
+
+### WCAG auto-correct in OKLCH (preserves brand chroma and hue)
+
+```
+$ lumo-wcag fix --fg '#7DD3FC' --bg '#FFFFFF'
+FIXED  #7DD3FC → #1B7BA1  on #FFFFFF
+       ratio 1.667:1 → 4.779:1  (required 4.5:1)
+       strategy=darken_fg  iterations=14
+```
+
+### Cross-platform parity diff (catches the 16dp / 48pt junior bug)
+
+```
+$ lumo-parity diff \
+    --android examples/parity_android.json \
+    --ios     examples/parity_ios.json \
+    --config  examples/lumo.config.json
+
+FOUND  6 parity findings (1 high, 2 info, 3 medium)
+
+  1. [HIGH    ] component_missing_on_ios
+     element: fab_add
+     android: present    ios: missing
+
+  2. [MEDIUM  ] height_mismatch
+     element: card_offer
+     android: 16.0    ios: 48.0
+     'card_offer' height differs: Android 16.0dp vs iOS 48.0pt.
+     dp and pt are both density-independent and should match.
+
+  5. [INFO    ] platform_specific_default
+     element: nav_back
+     android: 48.0    ios: 44.0
+     'nav_back' differs by design: Material 48dp vs Apple HIG 44pt.
+```
+
+The full real output is captured in [examples/](./examples/) and rendered
+by the actual binaries — no screenshots, no hand-edited results.
+
+A VHS tape (`assets/demo.tape`) is available for rebuilding an animated
+GIF once the local `vhs` + `ttyd` toolchain is happy with your system.
 
 ## Install
 

@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  python:
+    name: Python tools (${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install lumo-mobile in editable mode
+        working-directory: tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+          pip install pytest-asyncio
+
+      - name: Run pytest
+        working-directory: tools
+        run: pytest -q
+
+      - name: Build sdist + wheel
+        working-directory: tools
+        run: |
+          pip install build twine
+          python -m build
+          twine check dist/*
+
+  installer:
+    name: Node installer
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install installer deps
+        working-directory: installer
+        run: npm install --no-audit --no-fund
+
+      - name: Smoke test the CLI
+        working-directory: installer
+        run: |
+          node src/index.js --help
+          node src/index.js --version
+
+      - name: Verify pack contents
+        working-directory: installer
+        run: npm pack --dry-run
+
+  skill:
+    name: Skill manifests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate manifest JSON
+        run: |
+          python3 -c "import json; json.load(open('skills.json'))"
+          python3 -c "import json; json.load(open('.claude-plugin/marketplace.json'))"
+          python3 -c "import json; json.load(open('.claude-plugin/plugin.json'))"
+
+      - name: Verify SKILL.md frontmatter present
+        run: |
+          head -1 skill/SKILL.md | grep -q '^---$'
+          grep -q '^name: lumo' skill/SKILL.md
+          grep -q '^description:' skill/SKILL.md

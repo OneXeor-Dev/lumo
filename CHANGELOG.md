@@ -1,0 +1,51 @@
+# Changelog
+
+All notable changes to Lumo are documented here.
+
+The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
+and Lumo adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.0.1] — 2026-05-16
+
+First public release. Four working tools, five install paths, MCP support
+out of the box.
+
+### Added
+
+- `lumo-wcag` — W3C luminance + contrast checker with OKLCH auto-correct
+  that preserves chroma and hue while pushing pairs above WCAG AA / AAA.
+- `lumo-theory` — cognitive-science layout checks: undersized tap
+  targets, relative Fitts difficulty for primary actions, Hick overload
+  in equal-weight choice groups, Gestalt proximity violations, one-handed
+  reachability.
+- `lumo-parity` — cross-platform diff between Android (dp) and iOS (pt)
+  layouts. Component presence, sizing diff, design-system token validation,
+  whitelisted platform divergences (Material 48dp vs Apple HIG 44pt, etc.).
+- `lumo-mcp` — Model Context Protocol server exposing all of the above
+  to Claude Code, Cursor, Continue, Aider, Goose, Zed, OpenAI Codex CLI.
+- Claude Code skill (`skill/SKILL.md`) with explicit triggers, anti-triggers,
+  decision tree, output contract, and worked examples per tool.
+- `@onexeor/lumo` npm installer with `init / doctor / uninstall` and four
+  supported AI clients (Claude, Cursor, Codex, generic).
+- `lumo-mobile` published to PyPI for `pipx install lumo-mobile`.
+- `skills.json` for `npx skills add OneXeor/lumo`.
+- `.claude-plugin/marketplace.json` for the Claude Code plugin marketplace.
+- 67 tests covering WCAG anchors (WebAIM / Material / Apple), theory
+  layout cases, parity findings, and MCP wrapper parity with the
+  underlying Python API.
+- Example layouts (`examples/parity_*.json`, `theory_*_layout.json`,
+  `lumo.config.json`) used in the SKILL.md worked examples and in CI.
+
+### Notes
+
+- Python tools are deterministic. None of the four shipped tools depends
+  on an LLM at runtime.
+- The cognitive-science checks deliberately do **not** report absolute
+  Fitts MT or Hick RT in milliseconds — those depend on device-specific
+  constants with ±40% variance across studies. Lumo returns relative
+  ratios and discrete flags only.
+- Nielsen heuristics are present in the SKILL.md as inline manual-review
+  guidance but intentionally **not** in the `theory_check` tool — they
+  aren't reliably numeric.
+
+[0.0.1]: https://github.com/OneXeor/lumo/releases/tag/v0.0.1
