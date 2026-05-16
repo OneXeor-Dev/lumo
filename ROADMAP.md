@@ -105,7 +105,17 @@ Goal: `npx lumo init` works end-to-end with three demonstrable tools.
 | 1 | `wcag_validator` | ✅ Shipped | W3C luminance formula + OKLCH auto-correct that preserves chroma and hue. 28 tests against WebAIM / Material / Apple anchors. |
 | 2 | `theory_check` | ✅ Shipped | Fitts (undersized + relative difficulty for primary), Hick overload, Gestalt proximity, reach rules. 17 tests. Nielsen heuristics intentionally not in the tool (not reliably numeric). |
 | 3 | `platform_parity` | ✅ Shipped | Android (dp) vs iOS (pt) diff. Component presence, sizing diff, design-system token validation. Platform-specific defaults whitelisted (44 pt vs 48 dp etc.). 14 tests. |
-| 4 | npm CLI installer | ⏳ Next | `npx lumo init` — copies the skill, installs Python deps in a managed venv, runs a smoke check. |
+| 4 | `mcp_server` | ✅ Shipped | Stdio MCP server (`lumo-mcp`) exposing all three tools to Claude Code, Cursor, Continue, Aider, Goose, Zed, Codex. 8 tests covering registration + wrapper parity with the underlying Python API. |
+
+### Distribution (five install paths, all wired up)
+
+| # | Path | Status | Notes |
+|---|------|--------|-------|
+| 1 | `npx lumo init` | ✅ Shipped | Custom Node installer with `init / doctor / uninstall`, 4 supported AI clients (Claude, Cursor, Codex, generic), guided interactive flow, `--dev` for contributors. |
+| 2 | `npx skills add OneXeor/lumo` | ✅ Shipped | `skills.json` manifest at repo root for vercel-labs/skills (skills.sh ecosystem). |
+| 3 | `claude plugin marketplace add OneXeor/lumo` | ✅ Shipped | `.claude-plugin/marketplace.json` + `plugin.json` following the apple-skills schema. |
+| 4 | `pipx install lumo-tools` | ⚙️ Ready, not yet published | pyproject.toml has classifiers, urls, readme, license; `python -m build` produces clean wheel + sdist; `twine check dist/*` passes; name reserved (404 on PyPI). One `twine upload` away from live. |
+| 5 | Git clone + manual copy | ✅ Shipped | Documented in README as the zero-installer fallback. |
 
 ### Data (ships with the package)
 
