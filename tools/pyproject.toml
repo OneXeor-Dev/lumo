@@ -2,7 +2,6 @@
 name = "lumo-tools"
 version = "0.0.1"
 description = "Lumo mobile design tools — invoked by the Lumo Claude Code skill"
-readme = "../README.md"
 license = { text = "MIT" }
 requires-python = ">=3.10"
 authors = [{ name = "Viktor Savchik" }]
