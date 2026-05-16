@@ -1,0 +1,25 @@
+{
+  "name": "lumo",
+  "description": "Mobile UI/UX design intelligence — WCAG validator with OKLCH auto-correct, cross-platform parity diff for Compose vs SwiftUI, and theory-of-design (Fitts / Hick / Gestalt) layout checks. Specialised for Jetpack Compose, Android XML, SwiftUI, and UIKit.",
+  "author": {
+    "name": "OneXeor"
+  },
+  "repository": "https://github.com/OneXeor/lumo",
+  "keywords": [
+    "mobile",
+    "design",
+    "ui",
+    "ux",
+    "wcag",
+    "accessibility",
+    "jetpack-compose",
+    "swiftui",
+    "uikit",
+    "android",
+    "ios",
+    "fitts",
+    "gestalt",
+    "design-system",
+    "cross-platform"
+  ]
+}
