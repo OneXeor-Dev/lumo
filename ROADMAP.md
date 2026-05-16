@@ -96,7 +96,7 @@ before merging.
 
 ## Phase 1 — MVP (target: v0.1)
 
-Goal: `npx @onexeor/lumo init` works end-to-end with three demonstrable tools.
+Goal: `npx @onexeor/lumo init` works end-to-end with four demonstrable tools (wcag, theory, parity, mcp) and five install paths (npx installer, skills.sh, Claude marketplace, pipx, git clone).
 
 ### Tools
 
