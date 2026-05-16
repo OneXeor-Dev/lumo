@@ -135,10 +135,16 @@ Layout JSON schema:
 - `group` is a free-form string used by Hick (equal-weight overload) and
   Gestalt proximity.
 - `source` reports honesty: `measured` means the coordinates came from a
-  real device (Espresso, XCUITest, Compose `onGloballyPositioned`,
-  SwiftUI `GeometryReader`); `code-estimated` from static code parsing;
-  `description-estimated` from a description or screenshot. The tool
-  propagates this value to every finding so the user can weigh confidence.
+  real device or a snapshot-testing framework — Espresso, XCUITest,
+  Compose `onGloballyPositioned`, SwiftUI `GeometryReader`, **Paparazzi**
+  (Compose snapshot tests by Cash App / JetBrains), or
+  `xcodebuild test --only-testing` with `XCTAttachment` /
+  `swift-snapshot-testing`. `code-estimated` means the layout was parsed
+  from source code statically (theme tokens, `fillMaxWidth`, dynamic
+  type — anything that resolves at runtime — is a guess).
+  `description-estimated` means the layout was built from a screenshot
+  description or natural-language prompt. The tool propagates this value
+  to every finding so the user can weigh confidence.
 
 When you (the model) construct a layout from a screenshot or from Compose
 / SwiftUI source code, set `source` to the matching honest label. Do not
