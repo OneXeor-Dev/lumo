@@ -1,0 +1,15 @@
+{
+  "screen": {"width": 411, "height": 891, "unit": "dp"},
+  "source": "measured",
+  "elements": [
+    {"id": "nav_home",    "role": "nav_item",       "x": 0,   "y": 830, "w": 103, "h": 56, "group": "bottom_nav"},
+    {"id": "nav_search",  "role": "nav_item",       "x": 103, "y": 830, "w": 103, "h": 56, "group": "bottom_nav"},
+    {"id": "nav_library", "role": "nav_item",       "x": 206, "y": 830, "w": 103, "h": 56, "group": "bottom_nav"},
+    {"id": "nav_profile", "role": "nav_item",       "x": 309, "y": 830, "w": 103, "h": 56, "group": "bottom_nav"},
+    {"id": "title",       "role": "text",           "x": 24,  "y": 80,  "w": 300, "h": 32, "group": "header"},
+    {"id": "subtitle",    "role": "text",           "x": 24,  "y": 120, "w": 300, "h": 20, "group": "header"},
+    {"id": "card1",       "role": "list_item",      "x": 24,  "y": 200, "w": 363, "h": 120, "group": "content"},
+    {"id": "card2",       "role": "list_item",      "x": 24,  "y": 340, "w": 363, "h": 120, "group": "content"},
+    {"id": "cta",         "role": "primary_action", "x": 24,  "y": 720, "w": 363, "h": 56,  "weight": "primary"}
+  ]
+}

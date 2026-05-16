@@ -18,6 +18,7 @@ dev = [
 
 [project.scripts]
 lumo-wcag = "lumo.wcag.cli:main"
+lumo-theory = "lumo.theory.cli:main"
 
 [build-system]
 requires = ["setuptools>=68"]

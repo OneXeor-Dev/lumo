@@ -85,6 +85,86 @@ FIXED  #7DD3FC → #1B7BA1  on #FFFFFF
 
 Exit codes: `0` pass / unchanged, `1` check failed, `2` correction unreachable.
 
+### `lumo-theory` — cognitive-science layout checks
+
+When to invoke:
+
+- The user provides a screen layout (as coordinates, as code, or as a
+  screenshot you've described) and asks for a design review.
+- An audit needs to check Fitts (target difficulty), Hick (choice overload),
+  Gestalt proximity, or thumb-reachability of primary actions.
+
+What this tool **does not** do:
+
+- It does not produce absolute Fitts MT or Hick RT in milliseconds.
+  Those depend on device-specific constants (a, b) with ±40 % variance
+  between studies. We return relative comparisons and discrete flags.
+- It does not check Nielsen heuristics — those aren't reliably numeric.
+  See "Inline Rules → Nielsen heuristics" below for manual-review guidance.
+- It does not invoke any LLM. If the layout JSON was estimated by a model,
+  declare that with `"source": "description-estimated"` so findings carry
+  the right confidence label.
+
+Command:
+
+```bash
+lumo-theory check --layout path/to/layout.json [--json]
+```
+
+Layout JSON schema:
+
+```json
+{
+  "screen":  { "width": 411, "height": 891, "unit": "dp" },
+  "source":  "measured | code-estimated | description-estimated",
+  "elements": [
+    {
+      "id": "btn_continue",
+      "role": "primary_action",
+      "x": 24, "y": 800, "w": 363, "h": 56,
+      "group": "form_actions",
+      "weight": "primary"
+    }
+  ]
+}
+```
+
+- `role` ∈ `primary_action | secondary_action | nav_item | tab |
+  list_item | input | icon_button | text | image | decorative`
+- `weight` ∈ `primary | secondary | equal` (default `equal`)
+- `group` is a free-form string used by Hick (equal-weight overload) and
+  Gestalt proximity.
+- `source` reports honesty: `measured` means the coordinates came from a
+  real device (Espresso, XCUITest, Compose `onGloballyPositioned`,
+  SwiftUI `GeometryReader`); `code-estimated` from static code parsing;
+  `description-estimated` from a description or screenshot. The tool
+  propagates this value to every finding so the user can weigh confidence.
+
+When you (the model) construct a layout from a screenshot or from Compose
+/ SwiftUI source code, set `source` to the matching honest label. Do not
+default to `measured` — that would falsely inflate confidence.
+
+Worked example — a deliberately bad screen:
+
+```bash
+$ lumo-theory check --layout examples/bad.json
+FOUND  3 findings (2 high, 1 medium)
+       source: measured
+
+  1. [HIGH    ] fitts_undersized_target
+     elements: close
+     Element 'close' is 32dp on its shorter side, below the minimum tap
+     target (48dp).
+     → Increase the touchable area to at least 48dp, either by growing
+     the element or by extending the hit area (Compose:
+     Modifier.minimumInteractiveComponentSize; SwiftUI: .contentShape;
+     UIKit: hitTest override).
+     metric: smaller_side=32.00, minimum=48.00
+  ...
+```
+
+Exit codes: `0` no findings, `1` findings reported.
+
 ## Decision Tree
 
 | User request shape | Action |
@@ -92,7 +172,9 @@ Exit codes: `0` pass / unchanged, `1` check failed, `2` correction unreachable.
 | "Is `#ABC123` on `#FFFFFF` accessible?" | `lumo-wcag check` with that pair. |
 | "Fix this colour pair." | `lumo-wcag fix`. Report both the corrected hex and the strategy. |
 | "Audit this palette." | Run `lumo-wcag check` for every pair in the palette. Summarise as a table. |
-| "Review this Compose / SwiftUI screen." | (Tool arrives in Phase 1.) For now, apply the inline rules below and call out which checks would have been automated. |
+| "Review this Compose / SwiftUI screen." | Build a layout JSON (set `source` honestly), then run `lumo-theory check`. Combine with inline rules below for things the tool doesn't cover (typography, animation, anti-patterns). |
+| "Is this primary action reachable?" | `lumo-theory check` — the `reach_*` checks cover this. |
+| "Are there too many choices on this screen?" | `lumo-theory check` — the `hick_overload` check covers this. |
 | "Compare this iOS screen to its Android version." | (Tool arrives in Phase 2.) For now, diff manually using the parity rules in `references/parity.md` once it exists. |
 
 ## Output Format Contract

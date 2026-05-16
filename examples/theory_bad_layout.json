@@ -1,0 +1,15 @@
+{
+  "screen": {"width": 411, "height": 891, "unit": "dp"},
+  "source": "measured",
+  "elements": [
+    {"id": "save",    "role": "primary_action", "x": 350, "y": 24,  "w": 48,  "h": 48, "weight": "primary"},
+    {"id": "close",   "role": "icon_button",    "x": 16,  "y": 24,  "w": 32,  "h": 32},
+    {"id": "nav1",    "role": "nav_item",       "x": 0,   "y": 830, "w": 58,  "h": 56, "group": "bottom_nav"},
+    {"id": "nav2",    "role": "nav_item",       "x": 58,  "y": 830, "w": 58,  "h": 56, "group": "bottom_nav"},
+    {"id": "nav3",    "role": "nav_item",       "x": 116, "y": 830, "w": 58,  "h": 56, "group": "bottom_nav"},
+    {"id": "nav4",    "role": "nav_item",       "x": 174, "y": 830, "w": 58,  "h": 56, "group": "bottom_nav"},
+    {"id": "nav5",    "role": "nav_item",       "x": 232, "y": 830, "w": 58,  "h": 56, "group": "bottom_nav"},
+    {"id": "nav6",    "role": "nav_item",       "x": 290, "y": 830, "w": 58,  "h": 56, "group": "bottom_nav"},
+    {"id": "nav7",    "role": "nav_item",       "x": 348, "y": 830, "w": 58,  "h": 56, "group": "bottom_nav"}
+  ]
+}
