@@ -1,0 +1,10 @@
+{
+  "screen": {"width": 393, "height": 852, "unit": "pt"},
+  "source": "measured",
+  "elements": [
+    {"id": "header_title", "role": "text", "x": 20, "y": 100, "w": 300, "h": 32},
+    {"id": "card_offer", "role": "list_item", "x": 20, "y": 220, "w": 353, "h": 48},
+    {"id": "cta_continue", "role": "primary_action", "x": 20, "y": 730, "w": 353, "h": 56, "weight": "primary"},
+    {"id": "nav_back", "role": "icon_button", "x": 12, "y": 60, "w": 44, "h": 44}
+  ]
+}

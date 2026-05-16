@@ -165,6 +165,84 @@ FOUND  3 findings (2 high, 1 medium)
 
 Exit codes: `0` no findings, `1` findings reported.
 
+### `lumo-parity` — cross-platform parity diff
+
+When to invoke:
+
+- The user has the same screen built on Android (Compose / XML) and iOS
+  (SwiftUI / UIKit) and wants to know where the two diverge.
+- The user has a design system (tokens) and wants to verify both platforms
+  match it.
+
+What this tool does:
+
+- Compares two layout JSONs (same schema as `lumo-theory`), one per platform.
+- Flags numeric mismatches in size and presence of named elements.
+- Whitelists known legitimate platform divergences (Material 48dp vs Apple
+  HIG 44pt touch targets, Material bottom nav 80dp vs iOS Tab Bar 49pt) and
+  reports them as `info`, not as mismatches.
+- Optionally validates both layouts against a shared `lumo.config.json` so
+  divergence from the design system is reported as a separate, higher-
+  severity finding.
+
+What this tool **does not** do:
+
+- It does not flag position (x, y) mismatches. Different screen widths and
+  safe-area insets legitimately shift coordinates; flagging those would be
+  noise. Size, presence, and design-system tokens are what matter for parity.
+- It does not parse Compose or SwiftUI source code in v1. The model is
+  expected to translate code into layout JSON as preprocessing, then call
+  the tool. Set `source` to `code-estimated` in that case.
+
+Common bug pattern this tool catches:
+
+A junior dev writes `Modifier.padding(16.dp)` on Android but `.padding(48)`
+on SwiftUI, believing iOS uses "3× because Retina". Both `dp` and `pt` are
+density-independent and **equal in physical size on screen**. 16 ≠ 48.
+`lumo-parity` will flag this immediately.
+
+Command:
+
+```bash
+lumo-parity diff \
+  --android path/to/android.json \
+  --ios     path/to/ios.json \
+  [--config path/to/lumo.config.json] \
+  [--json]
+```
+
+Optional `lumo.config.json` schema:
+
+```json
+{
+  "spacing": { "sm": 8, "md": 16, "lg": 24 },
+  "sizing":  { "primary_button_height": 56 },
+  "colors":  { "primary": "brand.primary", "surface": "brand.surface" }
+}
+```
+
+Worked example — Android card with `padding(16.dp)` paired with SwiftUI
+`.padding(48)`:
+
+```bash
+$ lumo-parity diff --android examples/parity_android.json --ios examples/parity_ios.json
+FOUND  6 parity findings (1 high, 3 medium, 2 info)
+  ...
+  2. [MEDIUM] height_mismatch
+     element: card_offer
+     android: 16.0    ios: 48.0
+     'card_offer' height differs between platforms: Android 16.0dp vs iOS 48.0pt.
+     dp and pt are both density-independent and should match.
+  ...
+  5. [INFO  ] platform_specific_default
+     element: nav_back
+     android: 48.0    ios: 44.0
+     'nav_back' width differs by design: 48.0dp / 44.0pt.
+     Minimum touch target: Material 48dp vs Apple HIG 44pt.
+```
+
+Exit codes: `0` parity, `1` mismatches present.
+
 ## Decision Tree
 
 | User request shape | Action |
@@ -175,7 +253,8 @@ Exit codes: `0` no findings, `1` findings reported.
 | "Review this Compose / SwiftUI screen." | Build a layout JSON (set `source` honestly), then run `lumo-theory check`. Combine with inline rules below for things the tool doesn't cover (typography, animation, anti-patterns). |
 | "Is this primary action reachable?" | `lumo-theory check` — the `reach_*` checks cover this. |
 | "Are there too many choices on this screen?" | `lumo-theory check` — the `hick_overload` check covers this. |
-| "Compare this iOS screen to its Android version." | (Tool arrives in Phase 2.) For now, diff manually using the parity rules in `references/parity.md` once it exists. |
+| "Compare this iOS screen to its Android version." | Build layout JSONs for both platforms (set `source` honestly), then run `lumo-parity diff`. Pass `--config lumo.config.json` when the user has a shared design system. |
+| "Does my SwiftUI match the design tokens?" | `lumo-parity diff` with `--config`. Even a single-platform check benefits from design-system validation. |
 
 ## Output Format Contract
 
