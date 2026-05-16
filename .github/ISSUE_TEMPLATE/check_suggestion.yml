@@ -1,0 +1,74 @@
+name: Suggest a check
+description: Propose a new rule for lumo-theory, lumo-parity, or lumo-wcag.
+title: "[check] "
+labels: ["check-proposal"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please don't write code yet. Use this template to propose the
+        check. We'll discuss scope first, then you (or we) implement.
+
+  - type: input
+    id: rule
+    attributes:
+      label: The rule in one sentence
+      placeholder: "Touch targets adjacent to scrollable areas must have a 12dp safety margin."
+    validations:
+      required: true
+
+  - type: textarea
+    id: source
+    attributes:
+      label: Underlying source
+      description: HIG link, Material link, paper, blog post. Multiple are fine.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: input_shape
+    attributes:
+      label: What input does it need?
+      multiple: false
+      options:
+        - Layout JSON (theory_check / parity_diff schema)
+        - Colour pair (wcag_validator)
+        - Something new (describe below)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: numeric
+    attributes:
+      label: Is the rule numeric or qualitative?
+      multiple: false
+      options:
+        - Numeric (precise threshold)
+        - Qualitative (judgement call)
+    validations:
+      required: true
+
+  - type: textarea
+    id: qualitative_reason
+    attributes:
+      label: If qualitative — why is it in a tool and not in inline SKILL.md guidance?
+      description: Lumo's policy is that qualitative rules live as inline guidance, not as tool checks. Explain why this one is the exception.
+    validations:
+      required: false
+
+  - type: textarea
+    id: positive_example
+    attributes:
+      label: Example layout / pair that SHOULD trigger
+      render: json
+    validations:
+      required: true
+
+  - type: textarea
+    id: negative_example
+    attributes:
+      label: Example layout / pair that should NOT trigger
+      description: Important — without a negative case the check will false-positive.
+      render: json
+    validations:
+      required: true

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security issue
+    url: https://github.com/OneXeor-Dev/lumo/security/advisories/new
+    about: Report security issues privately via a GitHub security advisory.
+  - name: General question / discussion
+    url: https://github.com/OneXeor-Dev/lumo/discussions
+    about: Ask a question, share an idea, or start a discussion.

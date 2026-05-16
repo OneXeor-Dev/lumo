@@ -1,0 +1,31 @@
+cff-version: 1.2.0
+title: "Lumo: mobile UI/UX design intelligence for AI coding assistants"
+message: >-
+  If you use Lumo in your work, your tool, your article, or your video,
+  please cite it. The licence does not require it, but it keeps the
+  ecosystem honest and helps the project survive.
+type: software
+authors:
+  - given-names: Viktor
+    family-names: Savchik
+    affiliation: OneXeor-Dev
+repository-code: "https://github.com/OneXeor-Dev/lumo"
+url: "https://github.com/OneXeor-Dev/lumo"
+license: MIT
+keywords:
+  - mobile
+  - ui
+  - ux
+  - wcag
+  - accessibility
+  - jetpack-compose
+  - swiftui
+  - uikit
+  - fitts-law
+  - gestalt
+  - oklch
+  - mcp
+  - claude-code
+  - cross-platform
+version: 0.0.1
+date-released: "2026-05-16"
