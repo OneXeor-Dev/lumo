@@ -1,14 +1,38 @@
 [project]
 name = "lumo-tools"
 version = "0.0.1"
-description = "Lumo mobile design tools — invoked by the Lumo Claude Code skill"
+description = "Deterministic mobile UI/UX checks for Compose / SwiftUI / XML / UIKit — WCAG validator with OKLCH auto-correct, cross-platform parity diff, cognitive-science (Fitts / Hick / Gestalt) layout checks. Ships with an MCP server."
+readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.10"
 authors = [{ name = "Viktor Savchik" }]
+keywords = [
+    "mobile", "design", "ui", "ux", "wcag", "accessibility",
+    "jetpack-compose", "swiftui", "uikit", "android", "ios",
+    "fitts", "gestalt", "design-system", "cross-platform", "mcp",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Software Development :: User Interfaces",
+    "Topic :: Software Development :: Quality Assurance",
+]
 dependencies = [
     "numpy>=1.26",
     "mcp>=1.27",
 ]
+
+[project.urls]
+Homepage = "https://github.com/OneXeor/lumo"
+Repository = "https://github.com/OneXeor/lumo"
+Issues = "https://github.com/OneXeor/lumo/issues"
 
 [project.optional-dependencies]
 dev = [
