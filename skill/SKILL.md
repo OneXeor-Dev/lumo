@@ -43,7 +43,15 @@ mobile UI concern, stay out.
 
 Lumo ships with Python tools. Each tool has a single CLI entry-point with
 deterministic output. Invoke via Bash. Tools live in `tools/lumo/<area>/cli.py`
-and are exposed as console scripts after `pip install -e tools/`.
+and are exposed as console scripts after `pip install -e tools/` or
+`pipx install lumo-mobile`.
+
+When running inside an MCP-aware client (Cursor, Continue, Aider, Goose,
+Zed, Codex, or Claude Code with MCP enabled), the same four tools are
+also exposed as MCP functions: `lumo_wcag_check`, `lumo_wcag_fix`,
+`lumo_theory_check`, `lumo_parity_diff`. Prefer the MCP function over
+spawning a Bash subprocess when available — the structured response is
+already JSON and the user does not see noisy command output.
 
 ### `lumo-wcag` — WCAG contrast validator + OKLCH auto-correct
 

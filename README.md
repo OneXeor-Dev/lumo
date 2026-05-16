@@ -29,6 +29,12 @@ or `description-estimated` — so the consumer can weigh the result.
 
 ## Demo
 
+![Lumo demo: wcag fix, parity diff, theory check](./assets/demo.gif)
+
+Real output from the three CLIs, no screenshots or hand edits. Rebuild
+locally with `bash assets/record-demo.sh` after a `pip install -e ".[dev]"`
+in `tools/` and `brew install asciinema agg`.
+
 ### WCAG auto-correct in OKLCH (preserves brand chroma and hue)
 
 ```
@@ -66,9 +72,6 @@ FOUND  6 parity findings (1 high, 2 info, 3 medium)
 
 The full real output is captured in [examples/](./examples/) and rendered
 by the actual binaries — no screenshots, no hand-edited results.
-
-A VHS tape (`assets/demo.tape`) is available for rebuilding an animated
-GIF once the local `vhs` + `ttyd` toolchain is happy with your system.
 
 ## Install
 
@@ -134,6 +137,50 @@ cd lumo/tools && pip install -e .
 Zero-installer fallback for users who prefer to see every file move
 themselves (the [`material-3-skill`](https://github.com/hamen/material-3-skill)
 model).
+
+## Wiring the MCP server into your AI client manually
+
+If you'd rather not run `npx @onexeor/lumo init` and you already have
+`lumo-mobile` installed (via `pipx install lumo-mobile` or any other
+Python install), point your AI client at the `lumo-mcp` binary directly.
+The installer does this for you; this section is the manual fallback.
+
+First, find the absolute path of `lumo-mcp`:
+
+```bash
+which lumo-mcp
+# typically: /Users/<you>/.local/bin/lumo-mcp     (pipx)
+#       or: /Users/<you>/.lumo/venv/bin/lumo-mcp  (npx installer)
+```
+
+Then add Lumo to your client's MCP config. The shape is the same
+everywhere — only the file path differs:
+
+```jsonc
+{
+  "mcpServers": {
+    "lumo": {
+      "command": "/absolute/path/to/lumo-mcp",
+      "args": []
+    }
+  }
+}
+```
+
+Per-client paths:
+
+| Client | Config file |
+|---|---|
+| Claude Desktop / Claude Code (macOS) | `~/Library/Application Support/Claude/claude_desktop_config.json` |
+| Claude Desktop / Claude Code (Linux / Windows fallback) | `~/.claude/claude_desktop_config.json` |
+| Cursor | `~/.cursor/mcp.json` |
+| OpenAI Codex CLI | `~/.codex/mcp.json` |
+| Continue, Aider, Goose, Zed | each client's own MCP config — same `mcpServers` shape |
+
+Restart the client after editing the config. Verify with
+`lumo doctor` (if you installed via `npx @onexeor/lumo init`) — it will
+mark MCP as registered for each client whose config now contains the
+`lumo` server.
 
 ## Why Lumo
 
