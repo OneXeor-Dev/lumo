@@ -31,7 +31,7 @@ Under the hood the installer:
 
 1. Locates a Python 3.10+ interpreter and creates a Lumo-owned venv at
    `~/.lumo/venv` so your system Python stays clean.
-2. `pip install`s [`lumo-tools`](https://pypi.org/project/lumo-tools/) into
+2. `pip install`s [`lumo-mobile`](https://pypi.org/project/lumo-mobile/) into
    that venv. The CLIs (`lumo-wcag`, `lumo-theory`, `lumo-parity`,
    `lumo-mcp`) become available at absolute paths the MCP configs point to.
 3. Copies the `SKILL.md` bundle into the chosen client's skill directory.

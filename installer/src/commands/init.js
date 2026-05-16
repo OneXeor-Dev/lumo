@@ -40,7 +40,7 @@ export async function initCommand(opts) {
 
   const targets = await pickClient(opts.ai, opts.all);
 
-  console.log(kleur.dim("→ installing Python tools (lumo-tools) into ~/.lumo/venv ..."));
+  console.log(kleur.dim("→ installing Python tools (lumo-mobile) into ~/.lumo/venv ..."));
   try {
     if (opts.dev) {
       const dev = devSource();

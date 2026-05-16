@@ -1,10 +1,10 @@
 /**
- * Python detection and lumo-tools install helpers.
+ * Python detection and lumo-mobile install helpers.
  *
  * Strategy:
  *   - Locate a Python ≥3.10 interpreter (python3, python, py -3 on Windows).
  *   - Maintain a Lumo-owned venv at ~/.lumo/venv so user system Python stays clean.
- *   - Install lumo-tools into that venv via pip — from PyPI by default,
+ *   - Install lumo-mobile into that venv via pip — from PyPI by default,
  *     from a local git path when --dev was passed.
  *   - Expose absolute paths to each console script so SKILL.md and MCP configs
  *     can reference them without depending on PATH.
@@ -65,11 +65,11 @@ export async function ensureVenv() {
 }
 
 /**
- * Install lumo-tools into the Lumo-owned venv.
+ * Install lumo-mobile into the Lumo-owned venv.
  *
  * @param {object} opts
  * @param {string} [opts.source]  Local path to install from (used with --dev).
- *                                When omitted, installs `lumo-tools` from PyPI.
+ *                                When omitted, installs `lumo-mobile` from PyPI.
  */
 export async function installLumoTools(opts = {}) {
   await ensureVenv();
@@ -78,7 +78,7 @@ export async function installLumoTools(opts = {}) {
   if (opts.source) {
     args.push("-e", opts.source);
   } else {
-    args.push("lumo-tools");
+    args.push("lumo-mobile");
   }
   await execFileP(pip, args, { maxBuffer: 20 * 1024 * 1024 });
 }

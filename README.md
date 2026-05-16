@@ -70,9 +70,9 @@ Uses the `.claude-plugin/marketplace.json` manifest — same pattern as
 ### 4. Direct Python install (no AI client)
 
 ```bash
-pipx install lumo-tools          # global CLI install
+pipx install lumo-mobile          # global CLI install
 # or
-pip install lumo-tools           # any existing venv
+pip install lumo-mobile           # any existing venv
 ```
 
 Gives you the four CLIs (`lumo-wcag`, `lumo-theory`, `lumo-parity`,

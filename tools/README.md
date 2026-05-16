@@ -1,4 +1,4 @@
-# lumo-tools
+# lumo-mobile
 
 Deterministic mobile UI/UX checks invoked by [Lumo](https://github.com/OneXeor/lumo) — a
 Claude Code skill / MCP server / CLI toolkit for designing polished mobile
@@ -7,7 +7,7 @@ apps on Jetpack Compose, Android XML, SwiftUI, and UIKit.
 Install:
 
 ```bash
-pipx install lumo-tools
+pipx install lumo-mobile
 ```
 
 Three CLIs (plus one MCP server) ship:
