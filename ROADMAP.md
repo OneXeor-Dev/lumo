@@ -9,7 +9,7 @@ This document is the source of truth for what Lumo is, what it isn't, and the or
 These are settled. Do not re-litigate without strong cause.
 
 - **Platforms v1:** Android (Jetpack Compose + XML), iOS (SwiftUI + UIKit)
-- **Distribution:** npm CLI installer (`npx lumo init`), zero backend
+- **Distribution:** npm CLI installer (`npx @onexeor/lumo init` — top-level `lumo` was taken on npm by a WebGL library), zero backend
 - **Positioning:** cognitive-science-driven, not style-guide-driven
 - **Storage:** local only (LanceDB or sqlite-vec for embeddings; JSON/CSV for rules)
 - **Embedding model:** local (bge-small-en-v1.5, lazy download on first use)
@@ -96,7 +96,7 @@ before merging.
 
 ## Phase 1 — MVP (target: v0.1)
 
-Goal: `npx lumo init` works end-to-end with three demonstrable tools.
+Goal: `npx @onexeor/lumo init` works end-to-end with three demonstrable tools.
 
 ### Tools
 
@@ -111,7 +111,7 @@ Goal: `npx lumo init` works end-to-end with three demonstrable tools.
 
 | # | Path | Status | Notes |
 |---|------|--------|-------|
-| 1 | `npx lumo init` | ✅ Shipped | Custom Node installer with `init / doctor / uninstall`, 4 supported AI clients (Claude, Cursor, Codex, generic), guided interactive flow, `--dev` for contributors. |
+| 1 | `npx @onexeor/lumo init` | ⚙️ Ready, not yet published | Custom Node installer with `init / doctor / uninstall`, 4 supported AI clients (Claude, Cursor, Codex, generic), guided interactive flow, `--dev` for contributors. Scoped name because top-level `lumo` is taken on npm. Tarball builds clean (`npm pack --dry-run` verified), installs cleanly from `.tgz` end-to-end. One `npm publish --access public` away from live. |
 | 2 | `npx skills add OneXeor/lumo` | ✅ Shipped | `skills.json` manifest at repo root for vercel-labs/skills (skills.sh ecosystem). |
 | 3 | `claude plugin marketplace add OneXeor/lumo` | ✅ Shipped | `.claude-plugin/marketplace.json` + `plugin.json` following the apple-skills schema. |
 | 4 | `pipx install lumo-tools` | ⚙️ Ready, not yet published | pyproject.toml has classifiers, urls, readme, license; `python -m build` produces clean wheel + sdist; `twine check dist/*` passes; name reserved (404 on PyPI). One `twine upload` away from live. |

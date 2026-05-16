@@ -30,12 +30,16 @@ or `description-estimated` — so the consumer can weigh the result.
 
 Pick the path that fits your workflow:
 
-### 1. One-command installer (`npx lumo init`)
+### 1. One-command installer (`@onexeor/lumo`)
 
 ```bash
-npx lumo init                    # interactive — picks your AI client
-npx lumo init --ai claude        # explicit target
-npx lumo init --all              # install everywhere supported
+npx @onexeor/lumo init                    # interactive — picks your AI client
+npx @onexeor/lumo init --ai claude        # explicit target
+npx @onexeor/lumo init --all              # install everywhere supported
+
+# After install the binary is just `lumo`:
+lumo doctor
+lumo uninstall --ai claude
 ```
 
 Installs Python tools into `~/.lumo/venv`, copies the skill bundle into

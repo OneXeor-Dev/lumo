@@ -1,5 +1,5 @@
 {
-  "name": "lumo",
+  "name": "@onexeor/lumo",
   "version": "0.0.1",
   "description": "Install Lumo — mobile UI/UX design intelligence for AI coding assistants (Claude Code, Cursor, Codex, MCP clients).",
   "type": "module",
@@ -8,11 +8,16 @@
   },
   "files": [
     "src",
+    "skill",
     "README.md",
     "LICENSE"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
-    "start": "node src/index.js"
+    "start": "node src/index.js",
+    "prepack": "node scripts/bundle-skill.js"
   },
   "keywords": [
     "mobile",

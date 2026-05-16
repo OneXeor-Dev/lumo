@@ -4,14 +4,16 @@ One-command installer for [Lumo](https://github.com/OneXeor/lumo): mobile
 UI/UX design intelligence for AI coding assistants.
 
 ```bash
-npx lumo init                    # interactive — picks your AI client
-npx lumo init --ai claude        # explicit target
-npx lumo init --all              # install everywhere supported
-npx lumo init --ai claude --dev  # install from a local git clone (contributors)
-npx lumo init --no-mcp           # skill only, skip MCP server registration
+npx @onexeor/lumo init                    # interactive — picks your AI client
+npx @onexeor/lumo init --ai claude        # explicit target
+npx @onexeor/lumo init --all              # install everywhere supported
+npx @onexeor/lumo init --ai claude --dev  # install from a local git clone (contributors)
+npx @onexeor/lumo init --no-mcp           # skill only, skip MCP server registration
 
-npx lumo doctor                  # verify every Lumo piece is in place
-npx lumo uninstall --ai claude   # remove the skill (Python tools stay)
+# After install the binary is `lumo` (the scoped package name is only
+# needed to disambiguate during install):
+lumo doctor                               # verify every Lumo piece is in place
+lumo uninstall --ai claude                # remove the skill (Python tools stay)
 ```
 
 Supported AI clients in v0.1:
