@@ -25,6 +25,72 @@ These are settled. Do not re-litigate without strong cause.
 
 ---
 
+## Prompt Engineering Principles (locked, applies to every skill / sub-skill)
+
+Derived from an analysis of `material-3-skill`, `apple-skills`,
+`ui-ux-pro-max-skill`, and `mobile-app-ui-design` — what worked vs. what
+clearly didn't. Each new tool integration must satisfy every item below
+before merging.
+
+**Frontmatter**
+
+- `description` is one paragraph, ≤ 500 chars, ending with an explicit
+  literal-quoted trigger list: `Use when: "...", "...", "..."`.
+- No trigger desperation ("even if user just says X" is banned).
+
+**Activation contract**
+
+- Explicit `## When to Use` section with concrete request shapes.
+- Explicit `## When NOT to Use` section with skip conditions. Mandatory —
+  most failing skills omit this.
+
+**Tools**
+
+- Each tool documented with: purpose, when-to-invoke, full CLI signature,
+  at least one worked example with real output, exit-code legend.
+- The tool description *is* the example. The model invokes correctly when
+  the SKILL.md shows the exact command and the expected output.
+
+**Routing**
+
+- `## Decision Tree` as a 2-column table (`request shape → action`). Tables
+  outperform prose for routing.
+
+**Output**
+
+- `## Output Format Contract` section. Specify the exact response shape:
+  verdict line, optional issues table (columns enumerated), tool output as a
+  fenced block, optional one-sentence next step. Forbid emojis, closing
+  summaries, and restatements.
+
+**Anti-patterns**
+
+- Listed as a `Avoid → Prefer → Why` table, not prose adjectives. Borrowed
+  from `guide-swiftui-view-refactor` — verb-precise wins.
+
+**Self-correction**
+
+- `## Self-correction Loops` enumerates: "no tool needed", "tool error",
+  "zero findings", "too many findings", "ambiguity". Each with a one-line
+  rule.
+
+**Scope ceiling**
+
+- `## What Lumo Does NOT Do` lists capabilities explicitly out-of-scope so
+  the model declines instead of hallucinating.
+
+**Structure**
+
+- Monolithic `SKILL.md` while total content is under ~600 lines.
+- Once content exceeds that or there are ≥ 5 distinct sub-tasks, split into
+  `references/<topic>.md` and have the SKILL.md route to them by name.
+  (Pattern from `material-3-skill`; the anti-pattern from `ios-liquid-glass`
+  is having 17 reference files that the SKILL.md never points to.)
+
+---
+
+---
+
 ## Phase 1 — MVP (target: v0.1)
 
 Goal: `npx lumo init` works end-to-end with one killer feature demonstrable on video.
