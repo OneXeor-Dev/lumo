@@ -72,14 +72,14 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.cmd == "check":
-        result = check_pair(args.fg, args.bg, args.level, args.size)
-        _print_check(result, args.json)
-        return 0 if result.passes else 1
+        check_result = check_pair(args.fg, args.bg, args.level, args.size)
+        _print_check(check_result, args.json)
+        return 0 if check_result.passes else 1
 
     if args.cmd == "fix":
-        result = auto_correct(args.fg, args.bg, args.level, args.size, args.max_iterations)
-        _print_fix(result, args.json)
-        return 0 if result.corrected.passes else 2
+        fix_result = auto_correct(args.fg, args.bg, args.level, args.size, args.max_iterations)
+        _print_fix(fix_result, args.json)
+        return 0 if fix_result.corrected.passes else 2
 
     return 2
 
