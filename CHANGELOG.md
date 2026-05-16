@@ -28,7 +28,7 @@ out of the box.
 - `@onexeor/lumo` npm installer with `init / doctor / uninstall` and four
   supported AI clients (Claude, Cursor, Codex, generic).
 - `lumo-mobile` published to PyPI for `pipx install lumo-mobile`.
-- `skills.json` for `npx skills add OneXeor/lumo`.
+- `skills.json` for `npx skills add OneXeor-Dev/lumo`.
 - `.claude-plugin/marketplace.json` for the Claude Code plugin marketplace.
 - 67 tests covering WCAG anchors (WebAIM / Material / Apple), theory
   layout cases, parity findings, and MCP wrapper parity with the
@@ -48,4 +48,4 @@ out of the box.
   guidance but intentionally **not** in the `theory_check` tool — they
   aren't reliably numeric.
 
-[0.0.1]: https://github.com/OneXeor/lumo/releases/tag/v0.0.1
+[0.0.1]: https://github.com/OneXeor-Dev/lumo/releases/tag/v0.0.1

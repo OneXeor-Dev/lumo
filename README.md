@@ -94,7 +94,7 @@ flag list. Also ships `lumo doctor` and `lumo uninstall`.
 ### 2. `npx skills add` (vercel-labs/skills)
 
 ```bash
-npx skills add OneXeor/lumo
+npx skills add OneXeor-Dev/lumo
 ```
 
 The `skills.json` manifest at the repo root makes Lumo a first-class
@@ -104,7 +104,7 @@ by the `skills` CLI.
 ### 3. Claude Code plugin marketplace
 
 ```bash
-claude plugin marketplace add OneXeor/lumo
+claude plugin marketplace add OneXeor-Dev/lumo
 claude plugin install lumo@lumo
 ```
 
@@ -126,7 +126,7 @@ to wire Lumo into CI, scripts, or a custom workflow.
 ### 5. Git clone + manual
 
 ```bash
-git clone https://github.com/OneXeor/lumo.git
+git clone https://github.com/OneXeor-Dev/lumo.git
 cp -r lumo/skill ~/.claude/skills/lumo
 cd lumo/tools && pip install -e .
 ```
@@ -163,7 +163,7 @@ Flutter and React Native are on the v2 roadmap.
 ## Running locally for development
 
 ```bash
-git clone git@github.com:OneXeor/lumo.git
+git clone git@github.com:OneXeor-Dev/lumo.git
 cd lumo/tools
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"

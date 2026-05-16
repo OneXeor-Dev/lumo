@@ -112,8 +112,8 @@ Goal: `npx @onexeor/lumo init` works end-to-end with four demonstrable tools (wc
 | # | Path | Status | Notes |
 |---|------|--------|-------|
 | 1 | `npx @onexeor/lumo init` | ✅ Published | Custom Node installer, 4 supported AI clients (Claude, Cursor, Codex, generic). Live on npm as [@onexeor/lumo](https://www.npmjs.com/package/@onexeor/lumo). |
-| 2 | `npx skills add OneXeor/lumo` | ✅ Shipped | `skills.json` manifest at repo root for vercel-labs/skills (skills.sh ecosystem). |
-| 3 | `claude plugin marketplace add OneXeor/lumo` | ✅ Shipped | `.claude-plugin/marketplace.json` + `plugin.json` following the apple-skills schema. |
+| 2 | `npx skills add OneXeor-Dev/lumo` | ✅ Shipped | `skills.json` manifest at repo root for vercel-labs/skills (skills.sh ecosystem). |
+| 3 | `claude plugin marketplace add OneXeor-Dev/lumo` | ✅ Shipped | `.claude-plugin/marketplace.json` + `plugin.json` following the apple-skills schema. |
 | 4 | `pipx install lumo-mobile` | ✅ Published | Live on PyPI as [lumo-mobile](https://pypi.org/project/lumo-mobile/). |
 | 5 | Git clone + manual copy | ✅ Shipped | Documented in README as the zero-installer fallback. |
 

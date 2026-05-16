@@ -1,6 +1,6 @@
 # lumo-mobile
 
-Deterministic mobile UI/UX checks invoked by [Lumo](https://github.com/OneXeor/lumo) — a
+Deterministic mobile UI/UX checks invoked by [Lumo](https://github.com/OneXeor-Dev/lumo) — a
 Claude Code skill / MCP server / CLI toolkit for designing polished mobile
 apps on Jetpack Compose, Android XML, SwiftUI, and UIKit.
 
@@ -20,7 +20,7 @@ Three CLIs (plus one MCP server) ship:
 | `lumo-parity diff --android <path> --ios <path> [--config <path>]` | Cross-platform diff between Android (dp) and iOS (pt) layouts, with optional design-system token validation. |
 | `lumo-mcp` | Model Context Protocol server (stdio) exposing all of the above to Claude Code, Cursor, Continue, Aider, Goose, Zed, Codex. |
 
-See the [main repo](https://github.com/OneXeor/lumo) for the full SKILL.md,
+See the [main repo](https://github.com/OneXeor-Dev/lumo) for the full SKILL.md,
 examples, and rationale.
 
 ## License

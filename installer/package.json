@@ -37,7 +37,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/OneXeor/lumo.git"
+    "url": "https://github.com/OneXeor-Dev/lumo.git"
   },
   "engines": {
     "node": ">=18"

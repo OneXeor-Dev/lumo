@@ -1,6 +1,6 @@
 # lumo — installer
 
-One-command installer for [Lumo](https://github.com/OneXeor/lumo): mobile
+One-command installer for [Lumo](https://github.com/OneXeor-Dev/lumo): mobile
 UI/UX design intelligence for AI coding assistants.
 
 ```bash

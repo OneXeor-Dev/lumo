@@ -8,7 +8,7 @@
  *   uninstall [--ai <client>]      Remove the Lumo skill (Python tools left intact).
  *
  * Supported AI clients in v0.1: claude, cursor, codex, generic.
- * Other clients can still consume Lumo via `npx skills add OneXeor/lumo`
+ * Other clients can still consume Lumo via `npx skills add OneXeor-Dev/lumo`
  * or by pointing their MCP config at `lumo-mcp`.
  */
 

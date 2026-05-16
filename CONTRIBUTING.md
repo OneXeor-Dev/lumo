@@ -40,7 +40,7 @@ A more complete list lives in `ROADMAP.md` under "Non-goals".
 ## How to set up
 
 ```bash
-git clone https://github.com/OneXeor/lumo.git
+git clone https://github.com/OneXeor-Dev/lumo.git
 cd lumo/tools
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
