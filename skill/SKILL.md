@@ -47,11 +47,12 @@ and are exposed as console scripts after `pip install -e tools/` or
 `pipx install lumo-mobile`.
 
 When running inside an MCP-aware client (Cursor, Continue, Aider, Goose,
-Zed, Codex, or Claude Code with MCP enabled), the same four tools are
+Zed, Codex, or Claude Code with MCP enabled), the same tools are
 also exposed as MCP functions: `lumo_wcag_check`, `lumo_wcag_fix`,
-`lumo_theory_check`, `lumo_parity_diff`. Prefer the MCP function over
-spawning a Bash subprocess when available — the structured response is
-already JSON and the user does not see noisy command output.
+`lumo_theory_check`, `lumo_parity_diff`, `lumo_source_check_compose`.
+Prefer the MCP function over spawning a Bash subprocess when available
+— the structured response is already JSON and the user does not see
+noisy command output.
 
 ### `lumo-wcag` — WCAG contrast validator + OKLCH auto-correct
 
@@ -257,6 +258,99 @@ FOUND  6 parity findings (1 high, 3 medium, 2 info)
 
 Exit codes: `0` parity, `1` mismatches present.
 
+### `lumo-source` — AST-based design-system drift checks (Compose)
+
+When to invoke:
+
+- The user pastes Compose source code and asks for a code-level design
+  review (hardcoded colours, off-scale paddings, undersized buttons).
+- An audit needs to scan an actual `.kt` file rather than a translated
+  layout JSON.
+- The user wants to confirm a screen uses theme tokens consistently
+  before merging.
+
+What this tool does:
+
+- Parses the source with `tree-sitter-kotlin` (deterministic, no LLM).
+- Walks `Modifier.<call>(…)` chains, `Color(0x…)` constructors, and
+  `RoundedCornerShape(…)` declarations.
+- Flags four checks:
+  - `undersized_tap_target` (a11y, **high**) — `Modifier.size(N.dp)`
+    with `N < 48`.
+  - `off_scale_spacing` (consistency, **medium**) — `Modifier.padding(N.dp)`
+    where `N` is not on the spacing scale.
+  - `hardcoded_color` (token, **medium**) — `Color(0xFFRRGGBB)` literals.
+  - `off_scale_radius` (consistency, **low**) — `RoundedCornerShape(N.dp)`
+    where `N` is not on the radius scale.
+
+Honesty rule (locked):
+
+- The tool flags only **hardcoded literals**. Token references like
+  `MaterialTheme.spacing.md.dp`, `LocalDimensions.current.iconSize`, or
+  `MaterialTheme.colorScheme.primary` are intentionally **not** flagged
+  — we cannot resolve the runtime value statically, and these are the
+  pattern Lumo wants to encourage, not punish.
+- All findings carry `source: "code-estimated"`. The parser is exact,
+  but runtime resolution is not, so the confidence label stays honest.
+
+What this tool **does not** do:
+
+- It does not parse SwiftUI source in v1 (separate Phase 2.2 tool).
+- It does not check named-arg shapes like
+  `Modifier.padding(horizontal = 8.dp, vertical = 16.dp)` or per-corner
+  `RoundedCornerShape(topStart = 16.dp, ...)`. Documented limitation.
+- It does not run a project-wide scan (use the upcoming `lumo-audit`
+  for that; this tool is per-file).
+
+Command:
+
+```bash
+# Check a single .kt file
+lumo-source check --file path/to/Screen.kt
+
+# Pipe from stdin (useful for inline checks in an LLM loop)
+lumo-source check --file - < path/to/Screen.kt
+
+# Override the spacing / radius scale from a custom design system
+lumo-source check --file Screen.kt --scale 0,4,8,12,16,24 --radius-scale 0,8,16,24
+
+# Machine-readable output
+lumo-source check --file Screen.kt --json
+```
+
+Worked example — a screen with three drift signals:
+
+```bash
+$ lumo-source check --file BadScreen.kt
+FOUND  3 findings (1 high, 1 low, 1 medium) in BadScreen.kt
+       language: kotlin
+
+  1. [HIGH    ] undersized_tap_target  (a11y)
+     BadScreen.kt:7:41
+     Modifier.size(20.dp)
+     Modifier.size(20.0.dp) is below the Material minimum tap target (48.0dp).
+     → Grow the element to at least 48dp, or extend the hit area with
+       Modifier.minimumInteractiveComponentSize() while keeping the visual size.
+
+  2. [MEDIUM  ] hardcoded_color  (token)
+     BadScreen.kt:9:21
+     Color(0xFFAA0000)
+     Hardcoded Color(#AA0000) bypasses the design-system colour tokens —
+     refactor will be invisible to this call site.
+     → Replace with MaterialTheme.colorScheme.<role> so a theme update reaches
+       every consumer at once.
+
+  3. [LOW     ] off_scale_radius  (consistency)
+     BadScreen.kt:11:21
+     RoundedCornerShape(13.dp)
+     RoundedCornerShape(13.0.dp) is not on the radius scale (allowed:
+     [0.0, 4.0, 8.0, 12.0, 16.0, 24.0, 28.0, 32.0]).
+     → Use a value from the radius scale, or define a named Shape in
+       MaterialTheme.shapes if this radius is deliberate.
+```
+
+Exit codes: `0` clean, `1` findings present.
+
 ## Decision Tree
 
 | User request shape | Action |
@@ -269,6 +363,7 @@ Exit codes: `0` parity, `1` mismatches present.
 | "Are there too many choices on this screen?" | `lumo-theory check` — the `hick_overload` check covers this. |
 | "Compare this iOS screen to its Android version." | Build layout JSONs for both platforms (set `source` honestly), then run `lumo-parity diff`. Pass `--config lumo.config.json` when the user has a shared design system. |
 | "Does my SwiftUI match the design tokens?" | `lumo-parity diff` with `--config`. Even a single-platform check benefits from design-system validation. |
+| "Review this Compose file for design-system drift" / "are there hardcoded colours / off-scale paddings / undersized buttons in this `.kt`?" | `lumo-source check --file <path>`. Don't ask the user to translate the file into a layout JSON first — this tool reads source directly. |
 
 ## Output Format Contract
 

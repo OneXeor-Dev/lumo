@@ -25,6 +25,11 @@ from typing import Any, Literal
 from mcp.server.fastmcp import FastMCP
 
 from lumo.parity.core import DesignSystemConfig, diff
+from lumo.source.core import (
+    DEFAULT_RADIUS_SCALE_DP,
+    DEFAULT_SPACING_SCALE_DP,
+    check_compose,
+)
 from lumo.theory.core import Element, Layout, Screen, check_layout
 from lumo.wcag.core import auto_correct, check_pair
 
@@ -231,6 +236,62 @@ def lumo_parity_diff(
         "android_source": report.android_source,
         "ios_source": report.ios_source,
         "counts_by_severity": report.counts_by_severity,
+        "findings": [asdict(f) for f in report.findings],
+    }
+
+
+# ============================================================================
+# Tool 5 — source_check_compose
+# ============================================================================
+
+
+@server.tool()
+def lumo_source_check_compose(
+    source: str,
+    path: str = "<source>",
+    spacing_scale: list[float] | None = None,
+    radius_scale: list[float] | None = None,
+) -> dict[str, Any]:
+    """AST-based design-system drift checks on a Compose .kt source string.
+
+    Parses the source with tree-sitter-kotlin and walks Modifier chains,
+    Color() constructors, and RoundedCornerShape declarations. Flags only
+    *hardcoded* literals — token references like MaterialTheme.spacing.md
+    or MaterialTheme.colorScheme.primary are intentionally skipped, so this
+    tool catches drift without nagging about valid theme usage.
+
+    Reports four checks:
+      - undersized_tap_target (a11y) — Modifier.size(N.dp) with N < 48
+      - off_scale_spacing    (consistency) — padding not on the scale
+      - hardcoded_color      (token)       — Color(0xFFRRGGBB) literals
+      - off_scale_radius     (consistency) — RoundedCornerShape off scale
+
+    All findings carry source="code-estimated" — the parser is exact, but
+    runtime values cannot be resolved statically, so the confidence label
+    stays honest about the input shape.
+
+    Args:
+        source: Compose .kt source code (full file content).
+        path: Optional path label used in finding locations.
+        spacing_scale: Optional spacing scale in dp. Defaults to the
+                       Material 3 / HIG-flavoured scale.
+        radius_scale: Optional radius scale in dp. Defaults to Material 3.
+
+    Returns:
+        Dict with `file`, `language`, `counts_by_severity`,
+        `counts_by_category`, and `findings` list.
+    """
+    report = check_compose(
+        source,
+        path=path,
+        spacing_scale=tuple(spacing_scale) if spacing_scale else DEFAULT_SPACING_SCALE_DP,
+        radius_scale=tuple(radius_scale) if radius_scale else DEFAULT_RADIUS_SCALE_DP,
+    )
+    return {
+        "file": report.file,
+        "language": report.language,
+        "counts_by_severity": report.counts_by_severity,
+        "counts_by_category": report.counts_by_category,
         "findings": [asdict(f) for f in report.findings],
     }
 

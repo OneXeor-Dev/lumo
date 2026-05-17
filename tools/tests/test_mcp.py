@@ -1,7 +1,7 @@
 """Tests for the MCP server wrappers.
 
 We don't spin up the stdio transport — the SDK tests that. We verify that
-the FastMCP server registers our four tools with correct names and that
+the FastMCP server registers our tools with correct names and that
 each wrapper produces the same result as calling the underlying Python
 API directly. That's the only Lumo-specific surface area MCP adds.
 """
@@ -12,12 +12,14 @@ import pytest
 
 from lumo.mcp.server import (
     lumo_parity_diff,
+    lumo_source_check_compose,
     lumo_theory_check,
     lumo_wcag_check,
     lumo_wcag_fix,
     server,
 )
 from lumo.parity.core import diff
+from lumo.source.core import check_compose
 from lumo.theory.core import Element, Layout, Screen, check_layout
 from lumo.wcag.core import auto_correct, check_pair
 
@@ -28,7 +30,7 @@ from lumo.wcag.core import auto_correct, check_pair
 
 
 @pytest.mark.asyncio
-async def test_server_registers_four_tools() -> None:
+async def test_server_registers_all_tools() -> None:
     tools = await server.list_tools()
     names = {t.name for t in tools}
     assert names == {
@@ -36,6 +38,7 @@ async def test_server_registers_four_tools() -> None:
         "lumo_wcag_fix",
         "lumo_theory_check",
         "lumo_parity_diff",
+        "lumo_source_check_compose",
     }
 
 
@@ -161,3 +164,40 @@ def test_parity_wrapper_accepts_design_system_config() -> None:
     checks = {f["check"] for f in via_mcp["findings"]}
     assert "design_system_height_mismatch_android" in checks
     assert "design_system_height_mismatch_ios" in checks
+
+
+# ============================================================================
+# source wrapper must agree with the underlying API
+# ============================================================================
+
+
+def test_source_check_compose_wrapper_matches_direct_call() -> None:
+    src = """
+    @Composable
+    fun Brand() {
+        IconButton(onClick = {}, modifier = Modifier.size(20.dp)) { }
+        Surface(color = Color(0xFFAA0000)) { }
+        Surface(shape = RoundedCornerShape(13.dp)) { }
+    }
+    """
+    via_mcp = lumo_source_check_compose(src, path="Brand.kt")
+    direct = check_compose(src, path="Brand.kt")
+
+    assert via_mcp["file"] == direct.file
+    assert via_mcp["language"] == direct.language
+    assert via_mcp["counts_by_severity"] == direct.counts_by_severity
+    assert len(via_mcp["findings"]) == len(direct.findings)
+    via_checks = {f["check"] for f in via_mcp["findings"]}
+    assert {"undersized_tap_target", "hardcoded_color", "off_scale_radius"} <= via_checks
+
+
+def test_source_wrapper_accepts_custom_scale() -> None:
+    src = """
+    @Composable
+    fun Box() {
+        Column(modifier = Modifier.padding(13.dp)) { }
+    }
+    """
+    # 13 is on this custom scale — must not flag off_scale_spacing.
+    via_mcp = lumo_source_check_compose(src, spacing_scale=[0, 13, 26])
+    assert all(f["check"] != "off_scale_spacing" for f in via_mcp["findings"])
