@@ -32,7 +32,30 @@ from lumo.source.core import (
     DEFAULT_SPACING_SCALE_DP,
     SourceReport,
     check_compose,
+    check_swiftui,
 )
+
+
+def _detect_language(file_arg: str, override: str | None) -> str:
+    """Return 'kotlin' or 'swift' based on the override or the path suffix."""
+    if override:
+        if override not in ("kotlin", "swift"):
+            raise SystemExit(f"--lang must be 'kotlin' or 'swift', got: {override}")
+        return override
+    if file_arg == "-":
+        raise SystemExit(
+            "Reading from stdin requires --lang kotlin or --lang swift "
+            "(cannot infer language from '-')."
+        )
+    lower = file_arg.lower()
+    if lower.endswith(".kt") or lower.endswith(".kts"):
+        return "kotlin"
+    if lower.endswith(".swift"):
+        return "swift"
+    raise SystemExit(
+        f"Cannot infer language from '{file_arg}'. "
+        "Use --lang kotlin or --lang swift."
+    )
 
 
 def _parse_scale(text: str) -> tuple[float, ...]:
@@ -51,6 +74,12 @@ def _load_source(file_arg: str) -> tuple[str, str]:
         return sys.stdin.read(), "<stdin>"
     p = Path(file_arg)
     return p.read_text(encoding="utf-8"), str(p)
+
+
+_LANG_DISPATCH = {
+    "kotlin": check_compose,
+    "swift": check_swiftui,
+}
 
 
 def _print_human(report: SourceReport) -> None:
@@ -94,12 +123,21 @@ def main(argv: list[str] | None = None) -> int:
 
     check = sub.add_parser(
         "check",
-        help="Check a Compose .kt file for design-system drift.",
+        help="Check a Compose .kt or SwiftUI .swift file for design-system drift.",
     )
     check.add_argument(
         "--file",
         required=True,
-        help="Path to a .kt file, or '-' for stdin.",
+        help="Path to a .kt / .kts / .swift file, or '-' for stdin.",
+    )
+    check.add_argument(
+        "--lang",
+        choices=("kotlin", "swift"),
+        default=None,
+        help=(
+            "Force the language. Auto-detected from the file extension "
+            "when omitted; required when reading from stdin."
+        ),
     )
     check.add_argument(
         "--scale",
@@ -124,8 +162,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.cmd == "check":
+        lang = _detect_language(args.file, args.lang)
         source, path_label = _load_source(args.file)
-        report = check_compose(
+        report = _LANG_DISPATCH[lang](
             source,
             path=path_label,
             spacing_scale=args.scale,

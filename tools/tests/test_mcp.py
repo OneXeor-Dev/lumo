@@ -13,13 +13,14 @@ import pytest
 from lumo.mcp.server import (
     lumo_parity_diff,
     lumo_source_check_compose,
+    lumo_source_check_swiftui,
     lumo_theory_check,
     lumo_wcag_check,
     lumo_wcag_fix,
     server,
 )
 from lumo.parity.core import diff
-from lumo.source.core import check_compose
+from lumo.source.core import check_compose, check_swiftui
 from lumo.theory.core import Element, Layout, Screen, check_layout
 from lumo.wcag.core import auto_correct, check_pair
 
@@ -39,6 +40,7 @@ async def test_server_registers_all_tools() -> None:
         "lumo_theory_check",
         "lumo_parity_diff",
         "lumo_source_check_compose",
+        "lumo_source_check_swiftui",
     }
 
 
@@ -200,4 +202,36 @@ def test_source_wrapper_accepts_custom_scale() -> None:
     """
     # 13 is on this custom scale — must not flag off_scale_spacing.
     via_mcp = lumo_source_check_compose(src, spacing_scale=[0, 13, 26])
+    assert all(f["check"] != "off_scale_spacing" for f in via_mcp["findings"])
+
+
+def test_source_check_swiftui_wrapper_matches_direct_call() -> None:
+    src = """
+    struct Brand: View {
+        var body: some View {
+            Image(systemName: "x").frame(width: 20, height: 20)
+            Rectangle()
+                .fill(Color(red: 0.7, green: 0, blue: 0))
+                .cornerRadius(13)
+        }
+    }
+    """
+    via_mcp = lumo_source_check_swiftui(src, path="Brand.swift")
+    direct = check_swiftui(src, path="Brand.swift")
+
+    assert via_mcp["file"] == direct.file
+    assert via_mcp["language"] == direct.language == "swift"
+    assert via_mcp["counts_by_severity"] == direct.counts_by_severity
+    assert len(via_mcp["findings"]) == len(direct.findings)
+    via_checks = {f["check"] for f in via_mcp["findings"]}
+    assert {"undersized_tap_target", "hardcoded_color", "off_scale_radius"} <= via_checks
+
+
+def test_source_swiftui_wrapper_accepts_custom_scale() -> None:
+    src = """
+    struct Box: View {
+        var body: some View { Text("hi").padding(13) }
+    }
+    """
+    via_mcp = lumo_source_check_swiftui(src, spacing_scale=[0, 13, 26])
     assert all(f["check"] != "off_scale_spacing" for f in via_mcp["findings"])

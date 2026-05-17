@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Literal
 
 import tree_sitter_kotlin
+import tree_sitter_swift
 from tree_sitter import Language, Node, Parser
 
 Category = Literal["a11y", "consistency", "token", "theory"]
@@ -41,12 +42,18 @@ Severity = Literal["critical", "high", "medium", "low", "info"]
 DEFAULT_SPACING_SCALE_DP: tuple[float, ...] = (0.0, 4.0, 8.0, 12.0, 16.0, 20.0, 24.0, 32.0, 40.0, 48.0, 56.0, 64.0)
 DEFAULT_RADIUS_SCALE_DP: tuple[float, ...] = (0.0, 4.0, 8.0, 12.0, 16.0, 24.0, 28.0, 32.0)
 
-MIN_TAP_TARGET_DP = 48.0  # Material minimum
+MIN_TAP_TARGET_DP = 48.0  # Material minimum (Compose)
+MIN_TAP_TARGET_PT = 44.0  # Apple HIG minimum (SwiftUI)
 
 # Modifier names that take a single-dimension value (the .dp at call sites).
 SIZE_MODIFIERS = {"size", "width", "height", "minWidth", "minHeight"}
 PADDING_MODIFIERS = {"padding"}
 SHAPE_MODIFIERS = {"clip"}
+
+# SwiftUI uses bare pt — no .dp suffix. Modifier names map similarly.
+SWIFTUI_SIZE_MODIFIERS = {"frame"}
+SWIFTUI_PADDING_MODIFIERS = {"padding"}
+SWIFTUI_RADIUS_MODIFIERS = {"cornerRadius"}
 
 # ============================================================================
 # Finding model
@@ -93,6 +100,7 @@ class SourceReport:
 # ============================================================================
 
 _KOTLIN_LANGUAGE: Language | None = None
+_SWIFT_LANGUAGE: Language | None = None
 
 
 def _kotlin_parser() -> Parser:
@@ -100,6 +108,13 @@ def _kotlin_parser() -> Parser:
     if _KOTLIN_LANGUAGE is None:
         _KOTLIN_LANGUAGE = Language(tree_sitter_kotlin.language())
     return Parser(_KOTLIN_LANGUAGE)
+
+
+def _swift_parser() -> Parser:
+    global _SWIFT_LANGUAGE
+    if _SWIFT_LANGUAGE is None:
+        _SWIFT_LANGUAGE = Language(tree_sitter_swift.language())
+    return Parser(_SWIFT_LANGUAGE)
 
 
 # ============================================================================
@@ -387,6 +402,16 @@ def _check_corner_radius(
 # ============================================================================
 
 
+_SEVERITY_ORDER: dict[Severity, int] = {
+    "critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4,
+}
+
+
+def _sort_findings(findings: list[SourceFinding]) -> list[SourceFinding]:
+    findings.sort(key=lambda f: (_SEVERITY_ORDER[f.severity], f.file, f.line))
+    return findings
+
+
 def check_compose(
     source: str,
     path: str = "<source>",
@@ -408,12 +433,7 @@ def check_compose(
     findings.extend(_check_color_literals(root, src, path))
     findings.extend(_check_corner_radius(root, src, path, radius_scale))
 
-    severity_order: dict[Severity, int] = {
-        "critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4,
-    }
-    findings.sort(key=lambda f: (severity_order[f.severity], f.file, f.line))
-
-    return SourceReport(findings=tuple(findings), file=path, language="kotlin")
+    return SourceReport(findings=tuple(_sort_findings(findings)), file=path, language="kotlin")
 
 
 def check_compose_file(
@@ -424,6 +444,406 @@ def check_compose_file(
     """Convenience: read a .kt file from disk and check it."""
     p = Path(file_path)
     return check_compose(
+        p.read_text(encoding="utf-8"),
+        path=str(p),
+        spacing_scale=spacing_scale,
+        radius_scale=radius_scale,
+    )
+
+
+# ============================================================================
+# SwiftUI checks
+# ============================================================================
+#
+# SwiftUI surfaces differ from Compose:
+#   - No .dp / .sp suffix — numbers are bare pt (`.padding(16)`).
+#   - Touch-target minimum is 44pt (Apple HIG), not 48dp.
+#   - Colors come in several shapes: `Color(red:green:blue:)`,
+#     `Color(.sRGB, red:..., green:..., blue:...)`, `Color(hex: "...")`
+#     (custom extension), or `Color.red` (named constant).
+#   - Per-corner radii are not a single-modifier shape — modern SwiftUI
+#     uses `.clipShape(RoundedRectangle(cornerRadius:))`; we only check
+#     the simple `.cornerRadius(N)` shape in v1 (and `RoundedRectangle`
+#     literal radii where statically resolvable).
+#
+# Honesty rule (same as Compose): if a value is a token / variable /
+# computed expression we cannot resolve statically, we skip it. We only
+# flag hardcoded literals.
+
+
+def _swift_pt_value(node: Node, src: bytes) -> float | None:
+    """Return the float value when `node` is an integer or real literal.
+
+    Tree-sitter-swift uses `integer_literal` and `real_literal` for bare
+    numbers. Anything else (an identifier, a member access, a unary
+    expression) means we cannot statically resolve the value — return
+    None and skip per the honesty rule.
+    """
+    if node.type not in ("integer_literal", "real_literal"):
+        return None
+    try:
+        return float(_node_text(node, src))
+    except ValueError:
+        return None
+
+
+def _swift_value_argument_value(arg: Node, src: bytes) -> Node | None:
+    """For a `value_argument` node, return the AST node holding the value
+    (the part after `label:`). If the argument is a bare expression with
+    no label, return the first non-trivia child."""
+    if arg.type != "value_argument":
+        return None
+    # With a label, the children are: value_argument_label, ':', <value>.
+    # Without a label, the children are just [<value>].
+    has_label = any(c.type == "value_argument_label" for c in arg.children)
+    if not has_label:
+        for c in arg.children:
+            if c.is_named:
+                return c
+        return None
+    found_colon = False
+    for c in arg.children:
+        if c.type == ":":
+            found_colon = True
+            continue
+        if found_colon and c.is_named:
+            return c
+    return None
+
+
+def _swift_value_argument_label(arg: Node, src: bytes) -> str | None:
+    """Return the textual label of a value_argument, or None if unlabelled."""
+    for c in arg.children:
+        if c.type == "value_argument_label":
+            return _node_text(c, src).strip()
+    return None
+
+
+def _iter_swiftui_modifier_calls(
+    root: Node, src: bytes
+) -> Iterator[tuple[str, Node, Node]]:
+    """Yield (modifier_name, value_arguments_node, call_expression_node)
+    for every `.<modifier>(...)` call in the tree.
+
+    SwiftUI's chained modifiers parse as: a `call_expression` whose first
+    child is a `navigation_expression` whose last `navigation_suffix`
+    holds the modifier name. The matching `call_suffix.value_arguments`
+    is the second child of the outer call_expression.
+    """
+    for node in _walk(root):
+        if node.type != "call_expression":
+            continue
+        if len(node.children) < 2:
+            continue
+        callee = node.children[0]
+        if callee.type != "navigation_expression":
+            continue
+        # The last navigation_suffix names the modifier.
+        nav_suffix = None
+        for c in callee.children:
+            if c.type == "navigation_suffix":
+                nav_suffix = c
+        if nav_suffix is None:
+            continue
+        name_node = None
+        for c in nav_suffix.children:
+            if c.type == "simple_identifier":
+                name_node = c
+                break
+        if name_node is None:
+            continue
+        name = _node_text(name_node, src).strip()
+        # Find the value_arguments under the call_suffix.
+        value_args = None
+        for c in node.children[1:]:
+            if c.type == "call_suffix":
+                for cc in c.children:
+                    if cc.type == "value_arguments":
+                        value_args = cc
+                        break
+                break
+        if value_args is None:
+            continue
+        yield name, value_args, node
+
+
+def _check_swiftui_modifiers(
+    root: Node,
+    src: bytes,
+    path: str,
+    spacing_scale: tuple[float, ...],
+    radius_scale: tuple[float, ...],
+) -> list[SourceFinding]:
+    findings: list[SourceFinding] = []
+    for name, value_args, node in _iter_swiftui_modifier_calls(root, src):
+        file_, line, col = _location(node, path)
+        args = [c for c in value_args.children if c.type == "value_argument"]
+
+        # --- .frame(width:height:) ----------------------------------------
+        if name in SWIFTUI_SIZE_MODIFIERS:
+            labelled: dict[str, float] = {}
+            unresolved = False
+            for a in args:
+                label = _swift_value_argument_label(a, src)
+                if label is None:
+                    # `.frame(alignment: .center)` or similar — skip.
+                    continue
+                value_node = _swift_value_argument_value(a, src)
+                if value_node is None:
+                    continue
+                v = _swift_pt_value(value_node, src)
+                if v is None:
+                    unresolved = True
+                    continue
+                labelled[label] = v
+            if unresolved:
+                # At least one dimension is a token / variable — skip per
+                # honesty rule rather than partially flagging.
+                continue
+            # If width AND height are both literal AND both < HIG min, flag.
+            dims = [labelled[k] for k in ("width", "height") if k in labelled]
+            if dims and all(0 < d < MIN_TAP_TARGET_PT for d in dims) and len(dims) >= 2:
+                smaller = min(dims)
+                findings.append(
+                    SourceFinding(
+                        check="undersized_tap_target",
+                        category="a11y",
+                        severity="high",
+                        file=file_, line=line, column=col,
+                        snippet=_node_text(node, src),
+                        message=(
+                            f".frame(width: {labelled.get('width')}, "
+                            f"height: {labelled.get('height')}) is below the "
+                            f"Apple HIG minimum tap target ({MIN_TAP_TARGET_PT}pt)."
+                        ),
+                        recommendation=(
+                            "Grow the element to at least 44pt × 44pt, or extend the "
+                            "hit area with .contentShape(Rectangle()) and a larger "
+                            "containing frame while keeping the visual size."
+                        ),
+                        metric={
+                            "value_pt": smaller,
+                            "minimum_pt": MIN_TAP_TARGET_PT,
+                        },
+                    )
+                )
+
+        # --- .padding(...) ------------------------------------------------
+        if name in SWIFTUI_PADDING_MODIFIERS:
+            # Three shapes we handle:
+            #   .padding()                  → default 16pt, skip (no literal)
+            #   .padding(16)                → one unlabelled numeric arg
+            #   .padding(.horizontal, 16)   → an edge then a numeric arg
+            # We only check the trailing numeric literal. Anything else is
+            # skipped per the honesty rule.
+            numeric_arg: float | None = None
+            saw_unresolved = False
+            for a in args:
+                # We accept either an unlabelled bare numeric, or a labelled
+                # arg whose value is numeric (Swift devs rarely label
+                # padding amount, but be lenient).
+                value_node = _swift_value_argument_value(a, src)
+                if value_node is None:
+                    continue
+                if value_node.type == "prefix_expression":
+                    # `.horizontal`, `.top`, etc — skip
+                    continue
+                v = _swift_pt_value(value_node, src)
+                if v is None:
+                    saw_unresolved = True
+                    continue
+                numeric_arg = v
+            if numeric_arg is None:
+                continue
+            if saw_unresolved:
+                # Some part is a token — skip to stay honest.
+                continue
+            if numeric_arg not in spacing_scale:
+                findings.append(
+                    SourceFinding(
+                        check="off_scale_spacing",
+                        category="consistency",
+                        severity="medium",
+                        file=file_, line=line, column=col,
+                        snippet=_node_text(node, src),
+                        message=(
+                            f".padding({numeric_arg}) is not on the spacing "
+                            f"scale (allowed: {list(spacing_scale)})."
+                        ),
+                        recommendation=(
+                            "Round to the nearest scale value, or move this value "
+                            "into a spacing constant if it is a deliberate exception."
+                        ),
+                        metric={"value_pt": numeric_arg, "scale": list(spacing_scale)},
+                    )
+                )
+
+        # --- .cornerRadius(N) --------------------------------------------
+        if name in SWIFTUI_RADIUS_MODIFIERS:
+            if len(args) != 1:
+                continue
+            value_node = _swift_value_argument_value(args[0], src)
+            if value_node is None:
+                continue
+            v = _swift_pt_value(value_node, src)
+            if v is None:
+                continue  # token / variable — skip
+            if v in radius_scale:
+                continue
+            findings.append(
+                SourceFinding(
+                    check="off_scale_radius",
+                    category="consistency",
+                    severity="low",
+                    file=file_, line=line, column=col,
+                    snippet=_node_text(node, src),
+                    message=(
+                        f".cornerRadius({v}) is not on the radius scale "
+                        f"(allowed: {list(radius_scale)})."
+                    ),
+                    recommendation=(
+                        "Use a value from the radius scale, or define a named "
+                        "constant if this radius is deliberate."
+                    ),
+                    metric={"value_pt": v, "scale": list(radius_scale)},
+                )
+            )
+    return findings
+
+
+def _check_swiftui_color_literals(root: Node, src: bytes, path: str) -> list[SourceFinding]:
+    """Flag `Color(red:green:blue:)` and `Color(.sRGB, red:..., green:..., blue:...)`
+    literals where every channel is a numeric literal.
+
+    Skipped (honesty rule):
+      - `Color.red` / `Color.primary` — named constants, may be a theme alias
+      - `Color("brandPrimary")` — asset-catalog lookup, treated as a token
+      - `Color(red: brand.r, green: ...)` — any non-literal channel
+      - `Color(hex: "...")` — custom extension; we'd need to know which
+        extension to interpret it. Documented limitation.
+    """
+    findings: list[SourceFinding] = []
+    for node in _walk(root):
+        if node.type != "call_expression":
+            continue
+        if not node.children:
+            continue
+        callee = node.children[0]
+        # Top-level `Color(...)` — callee is `simple_identifier` "Color".
+        if callee.type != "simple_identifier":
+            continue
+        if _node_text(callee, src).strip() != "Color":
+            continue
+        # Find value_arguments.
+        value_args = None
+        for c in node.children[1:]:
+            if c.type == "call_suffix":
+                for cc in c.children:
+                    if cc.type == "value_arguments":
+                        value_args = cc
+                        break
+                break
+        if value_args is None:
+            continue
+        args = [c for c in value_args.children if c.type == "value_argument"]
+
+        # Collect labelled numeric channels.
+        channels: dict[str, float] = {}
+        had_non_numeric_channel = False
+        for a in args:
+            label = _swift_value_argument_label(a, src)
+            if label is None:
+                # First positional arg might be `.sRGB`, `.displayP3`, etc.
+                value_node = _swift_value_argument_value(a, src)
+                if value_node is not None and value_node.type == "prefix_expression":
+                    continue
+                # Or it might be a string ("brandPrimary") for asset lookup.
+                if value_node is not None and "string_literal" in value_node.type:
+                    had_non_numeric_channel = True
+                continue
+            if label not in ("red", "green", "blue", "opacity", "alpha"):
+                # Unknown labels (hex, white) — skip honestly.
+                had_non_numeric_channel = True
+                continue
+            value_node = _swift_value_argument_value(a, src)
+            if value_node is None:
+                had_non_numeric_channel = True
+                continue
+            v = _swift_pt_value(value_node, src)
+            if v is None:
+                had_non_numeric_channel = True
+                continue
+            channels[label] = v
+
+        # Need r/g/b all numeric to flag.
+        if had_non_numeric_channel:
+            continue
+        if not {"red", "green", "blue"} <= channels.keys():
+            continue
+        # Build an #RRGGBB string for the message.
+        def _to_byte(v: float) -> int:
+            return max(0, min(255, round(v * 255 if 0 <= v <= 1 else v)))
+        hex_val = "#{:02X}{:02X}{:02X}".format(
+            _to_byte(channels["red"]),
+            _to_byte(channels["green"]),
+            _to_byte(channels["blue"]),
+        )
+        file_, line, col = _location(node, path)
+        findings.append(
+            SourceFinding(
+                check="hardcoded_color",
+                category="token",
+                severity="medium",
+                file=file_, line=line, column=col,
+                snippet=_node_text(node, src),
+                message=(
+                    f"Hardcoded Color({hex_val}) bypasses the design-system "
+                    "colour tokens — refactor will be invisible to this call site."
+                ),
+                recommendation=(
+                    "Replace with an asset-catalog Color or a named constant "
+                    "(Color(\"brandPrimary\"), Color.theme.accent) so a theme "
+                    "update reaches every consumer at once."
+                ),
+                metric={"hex": hex_val, "channels": channels},
+            )
+        )
+    return findings
+
+
+def check_swiftui(
+    source: str,
+    path: str = "<source>",
+    spacing_scale: tuple[float, ...] = DEFAULT_SPACING_SCALE_DP,
+    radius_scale: tuple[float, ...] = DEFAULT_RADIUS_SCALE_DP,
+) -> SourceReport:
+    """Run AST checks on a SwiftUI .swift source string. Returns a SourceReport.
+
+    Mirrors `check_compose` but for SwiftUI. The same scales apply: dp and
+    pt are both density-independent and equal in physical size on screen,
+    so a `16` budget makes sense on both platforms. We re-use the same
+    spacing / radius defaults intentionally.
+    """
+    src = source.encode("utf-8")
+    parser = _swift_parser()
+    tree = parser.parse(src)
+    root = tree.root_node
+
+    findings: list[SourceFinding] = []
+    findings.extend(_check_swiftui_modifiers(root, src, path, spacing_scale, radius_scale))
+    findings.extend(_check_swiftui_color_literals(root, src, path))
+
+    return SourceReport(findings=tuple(_sort_findings(findings)), file=path, language="swift")
+
+
+def check_swiftui_file(
+    file_path: str | Path,
+    spacing_scale: tuple[float, ...] = DEFAULT_SPACING_SCALE_DP,
+    radius_scale: tuple[float, ...] = DEFAULT_RADIUS_SCALE_DP,
+) -> SourceReport:
+    """Convenience: read a .swift file from disk and check it."""
+    p = Path(file_path)
+    return check_swiftui(
         p.read_text(encoding="utf-8"),
         path=str(p),
         spacing_scale=spacing_scale,

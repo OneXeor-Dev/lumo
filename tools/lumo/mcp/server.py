@@ -29,6 +29,7 @@ from lumo.source.core import (
     DEFAULT_RADIUS_SCALE_DP,
     DEFAULT_SPACING_SCALE_DP,
     check_compose,
+    check_swiftui,
 )
 from lumo.theory.core import Element, Layout, Screen, check_layout
 from lumo.wcag.core import auto_correct, check_pair
@@ -282,6 +283,69 @@ def lumo_source_check_compose(
         `counts_by_category`, and `findings` list.
     """
     report = check_compose(
+        source,
+        path=path,
+        spacing_scale=tuple(spacing_scale) if spacing_scale else DEFAULT_SPACING_SCALE_DP,
+        radius_scale=tuple(radius_scale) if radius_scale else DEFAULT_RADIUS_SCALE_DP,
+    )
+    return {
+        "file": report.file,
+        "language": report.language,
+        "counts_by_severity": report.counts_by_severity,
+        "counts_by_category": report.counts_by_category,
+        "findings": [asdict(f) for f in report.findings],
+    }
+
+
+# ============================================================================
+# Tool 6 — source_check_swiftui
+# ============================================================================
+
+
+@server.tool()
+def lumo_source_check_swiftui(
+    source: str,
+    path: str = "<source>",
+    spacing_scale: list[float] | None = None,
+    radius_scale: list[float] | None = None,
+) -> dict[str, Any]:
+    """AST-based design-system drift checks on a SwiftUI .swift source string.
+
+    Parses the source with tree-sitter-swift and walks chained modifiers,
+    `Color(red:green:blue:)` constructors, and `.cornerRadius(...)` calls.
+    Flags only *hardcoded* literals — token references (`Theme.spacing.md`,
+    asset-catalog `Color("brandPrimary")`, named constants `Color.red`)
+    are intentionally skipped to catch drift without nagging valid usage.
+
+    Reports four checks (HIG-tuned where relevant):
+      - undersized_tap_target (a11y) — `.frame(width:N, height:N)` with
+        both N < 44pt (Apple HIG minimum, not Material 48dp).
+      - off_scale_spacing    (consistency) — `.padding(N)` or
+        `.padding(<edge>, N)` where N is not on the spacing scale.
+      - hardcoded_color      (token)       — `Color(red:green:blue:)`
+        with all three channels numeric.
+      - off_scale_radius     (consistency) — `.cornerRadius(N)` off scale.
+
+    All findings carry source="code-estimated" — the parser is exact, but
+    runtime values cannot be resolved statically, so the confidence label
+    stays honest about the input shape.
+
+    The same spacing/radius defaults apply to SwiftUI and Compose because
+    dp and pt are physically equal: 16dp ≡ 16pt on screen. Use a custom
+    scale only if your design system explicitly differs across platforms.
+
+    Args:
+        source: SwiftUI .swift source code (full file content).
+        path: Optional path label used in finding locations.
+        spacing_scale: Optional spacing scale in pt. Defaults to the
+                       Material 3 / HIG-flavoured scale.
+        radius_scale: Optional radius scale in pt. Defaults to Material 3.
+
+    Returns:
+        Dict with `file`, `language`, `counts_by_severity`,
+        `counts_by_category`, and `findings` list.
+    """
+    report = check_swiftui(
         source,
         path=path,
         spacing_scale=tuple(spacing_scale) if spacing_scale else DEFAULT_SPACING_SCALE_DP,

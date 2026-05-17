@@ -49,10 +49,10 @@ and are exposed as console scripts after `pip install -e tools/` or
 When running inside an MCP-aware client (Cursor, Continue, Aider, Goose,
 Zed, Codex, or Claude Code with MCP enabled), the same tools are
 also exposed as MCP functions: `lumo_wcag_check`, `lumo_wcag_fix`,
-`lumo_theory_check`, `lumo_parity_diff`, `lumo_source_check_compose`.
-Prefer the MCP function over spawning a Bash subprocess when available
-— the structured response is already JSON and the user does not see
-noisy command output.
+`lumo_theory_check`, `lumo_parity_diff`, `lumo_source_check_compose`,
+`lumo_source_check_swiftui`. Prefer the MCP function over spawning a
+Bash subprocess when available — the structured response is already
+JSON and the user does not see noisy command output.
 
 ### `lumo-wcag` — WCAG contrast validator + OKLCH auto-correct
 
@@ -258,30 +258,37 @@ FOUND  6 parity findings (1 high, 3 medium, 2 info)
 
 Exit codes: `0` parity, `1` mismatches present.
 
-### `lumo-source` — AST-based design-system drift checks (Compose)
+### `lumo-source` — AST-based design-system drift checks (Compose + SwiftUI)
 
 When to invoke:
 
-- The user pastes Compose source code and asks for a code-level design
-  review (hardcoded colours, off-scale paddings, undersized buttons).
-- An audit needs to scan an actual `.kt` file rather than a translated
-  layout JSON.
+- The user pastes Compose or SwiftUI source and asks for a code-level
+  design review (hardcoded colours, off-scale paddings, undersized
+  buttons).
+- An audit needs to scan an actual `.kt` / `.swift` file rather than a
+  translated layout JSON.
 - The user wants to confirm a screen uses theme tokens consistently
   before merging.
 
 What this tool does:
 
-- Parses the source with `tree-sitter-kotlin` (deterministic, no LLM).
-- Walks `Modifier.<call>(…)` chains, `Color(0x…)` constructors, and
-  `RoundedCornerShape(…)` declarations.
-- Flags four checks:
+- Parses the source with `tree-sitter-kotlin` or `tree-sitter-swift`
+  (deterministic, no LLM).
+- **Compose:** walks `Modifier.<call>(…)` chains, `Color(0x…)`
+  constructors, and `RoundedCornerShape(…)` declarations.
+- **SwiftUI:** walks chained view modifiers (`.frame`, `.padding`,
+  `.cornerRadius`) and `Color(red:green:blue:)` constructors.
+- Flags four checks per platform (HIG-tuned where relevant):
   - `undersized_tap_target` (a11y, **high**) — `Modifier.size(N.dp)`
-    with `N < 48`.
-  - `off_scale_spacing` (consistency, **medium**) — `Modifier.padding(N.dp)`
-    where `N` is not on the spacing scale.
-  - `hardcoded_color` (token, **medium**) — `Color(0xFFRRGGBB)` literals.
+    with `N < 48` on Compose; `.frame(width: N, height: N)` with both
+    `N < 44` on SwiftUI (Apple HIG minimum).
+  - `off_scale_spacing` (consistency, **medium**) — padding not on the
+    spacing scale, both platforms.
+  - `hardcoded_color` (token, **medium**) — `Color(0xFFRRGGBB)` on
+    Compose; `Color(red:green:blue:)` (or `Color(.sRGB, red:..., green:...,
+    blue:...)`) with all-numeric channels on SwiftUI.
   - `off_scale_radius` (consistency, **low**) — `RoundedCornerShape(N.dp)`
-    where `N` is not on the radius scale.
+    on Compose; `.cornerRadius(N)` on SwiftUI.
 
 Honesty rule (locked):
 
@@ -295,21 +302,32 @@ Honesty rule (locked):
 
 What this tool **does not** do:
 
-- It does not parse SwiftUI source in v1 (separate Phase 2.2 tool).
-- It does not check named-arg shapes like
+- On Compose, it does not check named-arg shapes like
   `Modifier.padding(horizontal = 8.dp, vertical = 16.dp)` or per-corner
   `RoundedCornerShape(topStart = 16.dp, ...)`. Documented limitation.
+- On SwiftUI, it does not flag `.cornerRadius` inside
+  `.clipShape(RoundedRectangle(cornerRadius:))`; only the top-level
+  `.cornerRadius(N)` shape. It does not resolve `Color(hex: "…")` custom
+  extensions (treated as tokens — the extension implementation isn't
+  known statically).
+- It does not flag single-dimension `.frame(width: N)` on SwiftUI —
+  ambiguous in isolation (might be inside a fixed-height row). Both
+  width and height must be literal AND undersized to flag.
 - It does not run a project-wide scan (use the upcoming `lumo-audit`
   for that; this tool is per-file).
 
 Command:
 
 ```bash
-# Check a single .kt file
+# Compose — language inferred from the .kt extension
 lumo-source check --file path/to/Screen.kt
 
-# Pipe from stdin (useful for inline checks in an LLM loop)
-lumo-source check --file - < path/to/Screen.kt
+# SwiftUI — language inferred from the .swift extension
+lumo-source check --file path/to/Screen.swift
+
+# Pipe from stdin — language must be set explicitly
+lumo-source check --file - --lang kotlin < path/to/Screen.kt
+lumo-source check --file - --lang swift  < path/to/Screen.swift
 
 # Override the spacing / radius scale from a custom design system
 lumo-source check --file Screen.kt --scale 0,4,8,12,16,24 --radius-scale 0,8,16,24
@@ -317,6 +335,11 @@ lumo-source check --file Screen.kt --scale 0,4,8,12,16,24 --radius-scale 0,8,16,
 # Machine-readable output
 lumo-source check --file Screen.kt --json
 ```
+
+Note on units: dp and pt are both density-independent and equal in
+physical size on screen. The same `--scale 0,4,8,12,16,…` budget applies
+to both platforms. Use a custom scale only if your design system
+explicitly differs across platforms.
 
 Worked example — a screen with three drift signals:
 
@@ -364,6 +387,7 @@ Exit codes: `0` clean, `1` findings present.
 | "Compare this iOS screen to its Android version." | Build layout JSONs for both platforms (set `source` honestly), then run `lumo-parity diff`. Pass `--config lumo.config.json` when the user has a shared design system. |
 | "Does my SwiftUI match the design tokens?" | `lumo-parity diff` with `--config`. Even a single-platform check benefits from design-system validation. |
 | "Review this Compose file for design-system drift" / "are there hardcoded colours / off-scale paddings / undersized buttons in this `.kt`?" | `lumo-source check --file <path>`. Don't ask the user to translate the file into a layout JSON first — this tool reads source directly. |
+| "Review this SwiftUI file" / "audit this `.swift`" | `lumo-source check --file <path>` (language auto-detected by extension). Apple HIG min tap target = 44pt — Lumo uses that, not the Compose 48dp. |
 
 ## Output Format Contract
 

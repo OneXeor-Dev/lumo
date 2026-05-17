@@ -1,8 +1,8 @@
 """AST-based source-code checks for Compose / SwiftUI.
 
 Public API:
-    check_compose(source, path=...)  -> SourceReport
-    check_swiftui(source, path=...)  -> SourceReport     (Phase 2.2)
+    check_compose(source, path=...)  -> SourceReport     (Compose / Kotlin)
+    check_swiftui(source, path=...)  -> SourceReport     (SwiftUI / Swift)
 
 Detects violations the existing layout-based checks cannot see without
 runtime data: hardcoded hex colours, off-scale dp/sp values, undersized
@@ -18,6 +18,7 @@ from lumo.source.core import (
     SourceFinding,
     SourceReport,
     check_compose,
+    check_swiftui,
 )
 
 __all__ = [
@@ -25,4 +26,5 @@ __all__ = [
     "SourceFinding",
     "SourceReport",
     "check_compose",
+    "check_swiftui",
 ]
