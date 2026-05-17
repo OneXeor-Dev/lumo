@@ -157,6 +157,11 @@ lumo/
      into one line of their existing snapshot test. The capture library
      walks the rendered view tree and writes Lumo-schema JSON next to
      the bitmap.
+   - **Android target: Roborazzi first**, Paparazzi second. Roborazzi
+     runs under Robolectric so the view tree, theme tokens, and
+     coordinates resolve like on a real device. Paparazzi (Layoutlib)
+     fakes some of that, so its capture helper is bigger work and ships
+     later.
    - Output: layout JSON with `source: "measured"` (the highest
      confidence label) instead of `code-estimated` or
      `description-estimated`.

@@ -1,6 +1,6 @@
 {
   "name": "@onexeor/lumo",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "Install Lumo — mobile UI/UX design intelligence for AI coding assistants (Claude Code, Cursor, Codex, MCP clients).",
   "type": "module",
   "bin": {
@@ -17,7 +17,7 @@
   },
   "scripts": {
     "start": "node src/index.js",
-    "prepack": "node scripts/bundle-skill.js"
+    "bundle-skill": "node scripts/bundle-skill.js"
   },
   "keywords": [
     "mobile",

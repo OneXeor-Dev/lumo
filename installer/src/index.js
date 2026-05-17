@@ -27,7 +27,7 @@ program
     "Mobile UI/UX design intelligence — WCAG / parity / cognitive-science checks " +
       "for Jetpack Compose, Android XML, SwiftUI, UIKit."
   )
-  .version("0.0.2");
+  .version("0.0.3");
 
 program
   .command("init")

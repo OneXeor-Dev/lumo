@@ -42,6 +42,24 @@ Under the hood the installer:
 The installer never modifies anything outside `~/.lumo`, the chosen
 client's skill directory, and the chosen client's MCP config file.
 
+## Publishing (maintainers only)
+
+The installer ships with no npm lifecycle scripts on purpose — Socket.dev
+and similar supply-chain scanners penalise packages that auto-execute
+code on install or pack, even when that code is benign. To publish a
+new version:
+
+```bash
+cd installer
+bash scripts/release.sh --dry-run   # bundles /skill into installer/skill, npm pack --dry-run
+bash scripts/release.sh             # same, but actually publishes
+```
+
+`release.sh` is the only sanctioned way to build the tarball. Running
+`npm pack` or `npm publish` directly will produce a broken tarball
+without the bundled `SKILL.md`, so `lumo init` would fail
+post-install. The script makes the bundling explicit and Socket-clean.
+
 ## License
 
 MIT

@@ -36,6 +36,30 @@ Snapshot tests win on accuracy. AST is a fallback for users without snapshot
 infrastructure. We start with snapshot tests because it's the path that
 unlocks new value, not a worse version of what we already have.
 
+## Android: Roborazzi is the better target
+
+Initial draft of this doc assumed Paparazzi (Cash App) would be the
+primary Android backend. After more investigation, **Roborazzi** is a
+stronger fit:
+
+| | Paparazzi (Cash App) | Roborazzi (Takahirom) |
+|---|---|---|
+| Render engine | Layoutlib fork (JVM, no Android runtime) | Robolectric (Android runtime in JVM) |
+| View hierarchy access at test time | Limited — Layoutlib does not expose `getLocationOnScreen` reliably | Full — Robolectric runs real `View` code, so coordinates, children, themes all resolve like on a device |
+| Theme tokens, `fillMaxWidth`, dynamic type | Resolves to defaults, hard to make match production | Resolves like the real device |
+| What we'd ship | A larger capture helper that has to fake Layoutlib's gaps | A small capture helper that just reads the view tree |
+
+So: **Lumo's Android capture library targets Roborazzi first.**
+Paparazzi can still be supported, but the helper for it is bigger and
+ships later (or as a community contribution). Both frameworks are in
+use in the wild — the design must not force a switch — but
+documentation and tests assume Roborazzi as the easy path.
+
+This swap doesn't change anything outside the Android side of the
+design. The iOS side (`swift-snapshot-testing` / `xcodebuild test`) is
+unchanged. The shared layout JSON schema is unchanged. The
+`lumo-theory --from` and `lumo-parity --from` CLI flags are unchanged.
+
 ## What Paparazzi actually emits (verified, not guessed)
 
 I verified this against `cashapp/paparazzi` source instead of trusting my
@@ -83,23 +107,34 @@ Two small libraries plus the Lumo tool that consumes their output.
 
 ### `lumo-android-capture` (Kotlin, distributed via Maven Central)
 
-A tiny library a developer drops into their Paparazzi test:
+A tiny library a developer drops into their Roborazzi test:
 
 ```kotlin
-@Test fun cart_screen() {
-  paparazzi.snapshot { CartScreen(state) }
-  LumoCapture.dump(paparazzi.composeView, to = "build/lumo/cart_screen.json")
+@RunWith(AndroidJUnit4::class)
+class CartScreenTest {
+  @get:Rule val composeRule = createComposeRule()
+
+  @Test fun cart_screen() {
+    composeRule.setContent { CartScreen(state) }
+    composeRule.onRoot().captureRoboImage("cart_screen.png")
+    LumoCapture.dump(
+      composeRule.onRoot(),
+      to = "build/lumo/cart_screen.json",
+    )
+  }
 }
 ```
 
-`LumoCapture` walks the rendered view tree once (after Paparazzi has
-laid it out), extracts `View.left/top/width/height` plus role hints
-(content description, semantic role) plus weight hints (if the user
-tagged elements with `Modifier.testTag("primary")` or `"nav"`), and
-writes a Lumo-schema JSON with `source: "measured"`.
+`LumoCapture` walks the rendered semantics tree once (after Compose
+has laid it out under Robolectric), extracts `Rect` bounds plus role
+hints (semantic role, content description) plus weight hints (if the
+user tagged elements with `Modifier.testTag("primary")` or `"nav"`),
+and writes a Lumo-schema JSON with `source: "measured"`.
 
-The library is small enough that it could also live inside the Paparazzi
-ecosystem if Cash App wants to upstream it. v0.2 ships it standalone.
+Paparazzi is **also** supported but needs a heavier helper because
+Layoutlib does not expose the rendered view tree the way Robolectric
+does. v0.2 ships Roborazzi support first; Paparazzi support lands
+when there's a contributor who needs it.
 
 ### `lumo-ios-capture` (Swift, distributed via SwiftPM)
 
