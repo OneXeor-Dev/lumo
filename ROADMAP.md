@@ -148,6 +148,14 @@ lumo/
 
 ### Tools
 
+4. **`lumo-source` — Compose AST checks** ✅ shipped in v0.0.3 (PyPI).
+   Parses `.kt` source with `tree-sitter-kotlin`. Four checks:
+   `undersized_tap_target` (a11y), `off_scale_spacing` (consistency),
+   `hardcoded_color` (token), `off_scale_radius` (consistency). Honesty
+   rule baked in: theme tokens (`MaterialTheme.*`, `LocalDimensions.*`)
+   are never flagged — only hardcoded literals trip a finding. Exposed
+   as a CLI (`lumo-source check --file …`) and as the 5th MCP tool
+   (`lumo_source_check_compose`). SwiftUI counterpart ships next (2.2).
 5. **`snapshot_input`** — read **measured** layouts from snapshot-testing
    frameworks instead of asking the user to hand-build JSON.
    - Verified: Paparazzi and `swift-snapshot-testing` **do not** emit

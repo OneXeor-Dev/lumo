@@ -5,6 +5,27 @@ All notable changes to Lumo are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and Lumo adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.3] — 2026-05-17
+
+### Added
+
+- **`lumo-source`** — AST-based design-system drift checks for Jetpack
+  Compose. Parses `.kt` files with `tree-sitter-kotlin` and flags four
+  patterns the layout-based checks can't see without runtime data:
+  - `undersized_tap_target` (a11y, high) — `Modifier.size(N.dp)` with `N<48`
+  - `off_scale_spacing` (consistency, medium) — padding off the scale
+  - `hardcoded_color` (token, medium) — raw `Color(0xFF…)` constants
+  - `off_scale_radius` (consistency, low) — `RoundedCornerShape` off scale
+  - Token references (`MaterialTheme.*`, `LocalDimensions.*`) are
+    intentionally **not** flagged — we cannot resolve runtime values
+    statically, so the honest answer is to skip rather than guess.
+- New MCP tool `lumo_source_check_compose` wrapping the same API.
+- `lumo-source` exposed as a console script (`pip install lumo-mobile`
+  now installs the binary alongside `lumo-wcag` / `lumo-theory` /
+  `lumo-parity` / `lumo-mcp`).
+- 20 unit tests in `tests/test_source.py` covering positive + negative
+  cases for every check, plus aggregation and custom-scale paths.
+
 ## [0.0.5] — 2026-05-17 (installer only)
 
 ### Changed
