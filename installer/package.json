@@ -1,6 +1,6 @@
 {
   "name": "@onexeor/lumo",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "Install Lumo — mobile UI/UX design intelligence for AI coding assistants (Claude Code, Cursor, Codex, MCP clients).",
   "type": "module",
   "bin": {
@@ -40,11 +40,6 @@
     "url": "https://github.com/OneXeor-Dev/lumo.git"
   },
   "engines": {
-    "node": ">=18"
-  },
-  "dependencies": {
-    "commander": "^12.1.0",
-    "kleur": "^4.1.5",
-    "prompts": "^2.4.2"
+    "node": ">=18.3"
   }
 }

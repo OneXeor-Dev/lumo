@@ -1,17 +1,14 @@
-import kleur from "kleur";
-import prompts from "prompts";
-
 import { CLIENTS, getClient } from "../lib/clients.js";
 import { unregisterMcp } from "../lib/mcp.js";
 import { removeSkill } from "../lib/skill.js";
+import { select } from "../lib/prompt.js";
+import { bold, cyan, dim, green } from "../lib/style.js";
 
-async function pickClient(supplied, allFlag) {
+async function pickClients(supplied, allFlag) {
   if (allFlag) return CLIENTS.filter((c) => c.id !== "generic");
   if (supplied) return [getClient(supplied)];
 
-  const { ai } = await prompts({
-    type: "select",
-    name: "ai",
+  const ai = await select({
     message: "Remove Lumo from which client?",
     choices: CLIENTS.filter((c) => c.skillDir).map((c) => ({ title: c.label, value: c.id })),
     initial: 0,
@@ -21,31 +18,31 @@ async function pickClient(supplied, allFlag) {
 }
 
 export async function uninstallCommand(opts) {
-  console.log(kleur.bold().cyan("\n• Lumo uninstaller\n"));
+  process.stdout.write("\n" + bold(cyan("• Lumo uninstaller")) + "\n\n");
 
-  const targets = await pickClient(opts.ai, opts.all);
+  const targets = await pickClients(opts.ai, opts.all);
 
   for (const client of targets) {
     if (!client.skillDir) continue;
-    console.log(kleur.bold(`\n→ ${client.label}`));
+    process.stdout.write("\n" + bold(`→ ${client.label}`) + "\n");
 
     const removed = removeSkill(client.skillDir);
     if (removed) {
-      console.log(kleur.green(`  ✓ skill removed from ${client.skillDir}`));
+      process.stdout.write(green(`  ✓ skill removed from ${client.skillDir}\n`));
     } else {
-      console.log(kleur.dim(`  skill not present (${client.skillDir})`));
+      process.stdout.write(dim(`  skill not present (${client.skillDir})\n`));
     }
 
     if (client.mcpConfigPath && client.mcpConfigKey) {
       const unreg = unregisterMcp(client.mcpConfigPath, client.mcpConfigKey);
       if (unreg) {
-        console.log(kleur.green(`  ✓ MCP entry removed from ${client.mcpConfigPath}`));
+        process.stdout.write(green(`  ✓ MCP entry removed from ${client.mcpConfigPath}\n`));
       } else {
-        console.log(kleur.dim(`  no MCP entry to remove`));
+        process.stdout.write(dim(`  no MCP entry to remove\n`));
       }
     }
   }
 
-  console.log(kleur.dim("\nPython tools (~/.lumo/venv) left intact."));
-  console.log(kleur.dim("Remove them manually with: rm -rf ~/.lumo\n"));
+  process.stdout.write("\n" + dim("Python tools (~/.lumo/venv) left intact.") + "\n");
+  process.stdout.write(dim("Remove them manually with: rm -rf ~/.lumo") + "\n\n");
 }

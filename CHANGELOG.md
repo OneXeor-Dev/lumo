@@ -5,6 +5,32 @@ All notable changes to Lumo are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and Lumo adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.4] — 2026-05-17 (installer only)
+
+### Changed
+
+- **Zero npm dependencies.** Removed `commander`, `kleur`, and `prompts`
+  from the installer in favour of Node built-ins and tiny in-tree helpers
+  (`src/lib/style.js`, `src/lib/prompt.js`). Two reasons:
+  1. Socket.dev dependency alerts on @onexeor/lumo 0.0.3 came from these
+     three packages — `URL strings` and `Environment variable access`
+     supply-chain signals plus an `Unmaintained` flag on `sisteransi`
+     (a transitive dep of `prompts`, last released 2020). With zero
+     deps the dependency-tree surface area Socket scans is now empty.
+  2. The total replacement cost is small — argument parsing moved to
+     `node:util` `parseArgs` (Node ≥18.3), styling is six ANSI helpers,
+     and the prompt is a 60-line numbered-list select that falls back
+     to the first option on non-TTY stdin.
+- `engines.node` bumped from `>=18` to `>=18.3` for `parseArgs`.
+
+### Notes
+
+- No user-facing CLI surface change. `lumo init`, `lumo doctor`,
+  `lumo uninstall` all accept the same flags and behave the same way.
+- Smoke-tested end-to-end on a fresh machine: `npm install` shows
+  `└── (empty)`, `lumo init --ai claude --dev --no-mcp` runs through,
+  `lumo doctor` reports green.
+
 ## [0.0.3] — 2026-05-17 (installer only)
 
 ### Changed
