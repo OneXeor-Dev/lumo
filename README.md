@@ -21,7 +21,7 @@ guesses.
 | `lumo-wcag` | WCAG AA / AAA contrast checker + OKLCH auto-correct that preserves chroma and hue. Catches the contrast pairs Claude misjudges by eye. |
 | `lumo-theory` | Cognitive-science layout checks: undersized tap targets, relative Fitts difficulty for primary actions, Hick overload in equal-weight choice groups, Gestalt proximity violations, one-handed reachability. |
 | `lumo-parity` | Cross-platform diff between Android (Compose / XML, in dp) and iOS (SwiftUI / UIKit, in pt). Flags size and component mismatches. Whitelists known platform divergences (Material 48 dp vs Apple HIG 44 pt, etc.) so the noise stays out. Optional `lumo.config.json` validates both platforms against shared design tokens. |
-| `lumo-source` | AST-based design-system drift checks for Jetpack Compose `.kt` files. Flags hardcoded `Color(0xFF…)` literals, off-scale paddings / radii, and undersized tap targets — but never trips on theme tokens (`MaterialTheme.*`, `LocalDimensions.*`) since those are exactly what Lumo wants to encourage. |
+| `lumo-source` | AST-based design-system drift checks for Jetpack Compose `.kt` and SwiftUI `.swift` files. Flags hardcoded colours, off-scale paddings / radii, and undersized tap targets (Material 48dp on Compose, Apple HIG 44pt on SwiftUI) — but never trips on theme tokens (`MaterialTheme.*`, `LocalDimensions.*`, `Color("brand…")`, asset-catalog lookups) since those are exactly what Lumo wants to encourage. |
 | `lumo-mcp` | Model Context Protocol server. Exposes all of the above to Claude Code, Cursor, Continue, Aider, Goose, Zed, OpenAI Codex CLI, and any other MCP-aware client. |
 
 Each tool returns structured findings (severity, recommendation, metric)

@@ -5,6 +5,30 @@ All notable changes to Lumo are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and Lumo adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.4] — 2026-05-17
+
+### Added
+
+- **SwiftUI support in `lumo-source`.** The same four checks
+  (`undersized_tap_target`, `off_scale_spacing`, `hardcoded_color`,
+  `off_scale_radius`) now apply to `.swift` files via `tree-sitter-swift`.
+  - Apple HIG minimum tap target = **44pt** (not the Compose 48dp).
+  - SwiftUI uses bare `pt` numbers — `.padding(16)` not `.padding(16.dp)`.
+  - Colour check recognises `Color(red:green:blue:)`,
+    `Color(.sRGB, red:..., green:..., blue:...)`, and skips named
+    constants (`Color.red`), asset-catalog lookups (`Color("brand")`),
+    and `Color(hex: "…")` custom extensions per the honesty rule.
+  - Same spacing/radius scales as Compose — dp and pt are physically
+    equal on screen, so the budget transfers unchanged.
+- **`lumo-source` language auto-detect**: language inferred from the
+  file extension (`.kt`, `.kts`, `.swift`). Required `--lang kotlin|swift`
+  when reading from stdin.
+- New MCP tool `lumo_source_check_swiftui` wrapping the same API. The
+  MCP server now exposes 6 tools total.
+- 23 new tests in `tests/test_source_swiftui.py` covering positive +
+  negative cases per check, plus 2 new wrapper-parity tests in
+  `tests/test_mcp.py`. Suite: 114/114 pass, mypy strict clean.
+
 ## [0.0.3] — 2026-05-17
 
 ### Added

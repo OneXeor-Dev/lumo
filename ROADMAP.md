@@ -148,14 +148,18 @@ lumo/
 
 ### Tools
 
-4. **`lumo-source` — Compose AST checks** ✅ shipped in v0.0.3 (PyPI).
-   Parses `.kt` source with `tree-sitter-kotlin`. Four checks:
-   `undersized_tap_target` (a11y), `off_scale_spacing` (consistency),
-   `hardcoded_color` (token), `off_scale_radius` (consistency). Honesty
-   rule baked in: theme tokens (`MaterialTheme.*`, `LocalDimensions.*`)
-   are never flagged — only hardcoded literals trip a finding. Exposed
-   as a CLI (`lumo-source check --file …`) and as the 5th MCP tool
-   (`lumo_source_check_compose`). SwiftUI counterpart ships next (2.2).
+4. **`lumo-source` — Compose + SwiftUI AST checks**
+   ✅ Compose shipped in v0.0.3 (PyPI). ✅ SwiftUI shipped in v0.0.4.
+   Parses `.kt` with `tree-sitter-kotlin` and `.swift` with
+   `tree-sitter-swift`. Four checks per platform:
+   `undersized_tap_target` (a11y, Material 48dp / Apple HIG 44pt),
+   `off_scale_spacing`, `hardcoded_color`, `off_scale_radius`. Honesty
+   rule baked in: theme tokens (`MaterialTheme.*`, `LocalDimensions.*`,
+   `Theme.spacing.*`, `Color("brandPrimary")`) are never flagged — only
+   hardcoded literals trip a finding. Exposed as a CLI
+   (`lumo-source check --file …`, language auto-detected by extension)
+   and as two MCP tools (`lumo_source_check_compose`,
+   `lumo_source_check_swiftui`).
 5. **`snapshot_input`** — read **measured** layouts from snapshot-testing
    frameworks instead of asking the user to hand-build JSON.
    - Verified: Paparazzi and `swift-snapshot-testing` **do not** emit
