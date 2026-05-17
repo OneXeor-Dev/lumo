@@ -5,6 +5,18 @@ All notable changes to Lumo are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and Lumo adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.5] — 2026-05-17 (installer only)
+
+### Changed
+
+- Removed inline markdown URL links from `installer/README.md`. Socket
+  flags string-encoded URLs in package content as a supply-chain risk
+  signal even when the URL is in documentation. The remaining URL is
+  in `package.json#repository.url`, which is a required npm field used
+  by the npm.js page to show the Repository link — we keep it
+  deliberately.
+- No behaviour change: the installer CLI works exactly as in 0.0.4.
+
 ## [0.0.4] — 2026-05-17 (installer only)
 
 ### Changed

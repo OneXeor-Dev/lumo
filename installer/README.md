@@ -1,7 +1,9 @@
 # lumo — installer
 
-One-command installer for [Lumo](https://github.com/OneXeor-Dev/lumo): mobile
-UI/UX design intelligence for AI coding assistants.
+One-command installer for Lumo: mobile UI/UX design intelligence for AI
+coding assistants. The full project (skill, MCP server, Python tools,
+docs, examples) lives in the `OneXeor-Dev/lumo` GitHub repository — see
+the `repository` field in `package.json` for the canonical link.
 
 ```bash
 npx @onexeor/lumo init                    # interactive — picks your AI client
@@ -31,9 +33,9 @@ Under the hood the installer:
 
 1. Locates a Python 3.10+ interpreter and creates a Lumo-owned venv at
    `~/.lumo/venv` so your system Python stays clean.
-2. `pip install`s [`lumo-mobile`](https://pypi.org/project/lumo-mobile/) into
-   that venv. The CLIs (`lumo-wcag`, `lumo-theory`, `lumo-parity`,
-   `lumo-mcp`) become available at absolute paths the MCP configs point to.
+2. `pip install`s the `lumo-mobile` package from PyPI into that venv.
+   The CLIs (`lumo-wcag`, `lumo-theory`, `lumo-parity`, `lumo-mcp`)
+   become available at absolute paths the MCP configs point to.
 3. Copies the `SKILL.md` bundle into the chosen client's skill directory.
 4. Merges a `{ "mcpServers": { "lumo": { "command": "..." } } }` block
    into the client's MCP config — non-destructive, backs up the file once
