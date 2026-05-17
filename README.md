@@ -32,9 +32,11 @@ or `description-estimated` — so the consumer can weigh the result.
 
 ![Lumo demo: wcag fix, parity diff, theory check](./assets/demo.gif)
 
-Real output from the three CLIs, no screenshots or hand edits. Rebuild
+Real output from the Lumo CLIs, no screenshots or hand edits. Rebuild
 locally with `bash assets/record-demo.sh` after a `pip install -e ".[dev]"`
-in `tools/` and `brew install asciinema agg`.
+in `tools/` and `brew install asciinema agg`. (The GIF currently shows
+`lumo-wcag`, `lumo-parity`, and `lumo-theory` — `lumo-source` is captured
+in the worked examples below the install section instead.)
 
 ### WCAG auto-correct in OKLCH (preserves brand chroma and hue)
 
@@ -198,8 +200,8 @@ in three ways:
    "iOS uses 3× because Retina" misconception — and any other size or
    presence drift between the two platforms.
 3. **Deterministic tools, not just prompts.** Real W3C luminance math,
-   real OKLCH conversion, real geometric checks. None of the four shipped
-   tools depends on an LLM at runtime.
+   real OKLCH conversion, real geometric checks, real `tree-sitter` AST
+   walking. None of the shipped tools depends on an LLM at runtime.
 
 ## Target platforms (v1)
 

@@ -102,11 +102,12 @@ jobs:
           python -m venv /tmp/e2e-venv
           /tmp/e2e-venv/bin/pip install dist/*.whl
 
-      - name: All four console scripts exist
+      - name: All five console scripts exist
         run: |
           test -x /tmp/e2e-venv/bin/lumo-wcag
           test -x /tmp/e2e-venv/bin/lumo-theory
           test -x /tmp/e2e-venv/bin/lumo-parity
+          test -x /tmp/e2e-venv/bin/lumo-source
           test -x /tmp/e2e-venv/bin/lumo-mcp
 
       - name: lumo-wcag check exits non-zero on a known-fail pair
@@ -139,6 +140,31 @@ jobs:
             --config  examples/lumo.config.json || true)"
           echo "$out"
           echo "$out" | grep -q 'height_mismatch'
+
+      - name: lumo-source flags every plant in the Compose anchor
+        run: |
+          out="$(/tmp/e2e-venv/bin/lumo-source check --file examples/source_bad_compose.kt || true)"
+          echo "$out"
+          # Anchor file has exactly one of each — Material 48dp violation,
+          # hex colour, and off-scale radius. Theme references must NOT
+          # be flagged.
+          echo "$out" | grep -q 'undersized_tap_target'
+          echo "$out" | grep -q 'hardcoded_color'
+          echo "$out" | grep -q 'off_scale_radius'
+          ! echo "$out" | grep -q 'MaterialTheme.colorScheme.primary'
+
+      - name: lumo-source flags every plant in the SwiftUI anchor
+        run: |
+          out="$(/tmp/e2e-venv/bin/lumo-source check --file examples/source_bad_swiftui.swift || true)"
+          echo "$out"
+          # Anchor file has exactly one of each — Apple HIG 44pt violation,
+          # Color(red:green:blue:), and off-scale cornerRadius. The
+          # asset-catalog Color("brandPrimary") and Color.red must NOT
+          # be flagged.
+          echo "$out" | grep -q 'undersized_tap_target'
+          echo "$out" | grep -q 'hardcoded_color'
+          echo "$out" | grep -q 'off_scale_radius'
+          ! echo "$out" | grep -q 'Color("brandPrimary")'
 
   installer:
     name: Node installer

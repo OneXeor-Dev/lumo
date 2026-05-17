@@ -19,6 +19,8 @@ findings the README screenshot promises still match.
 | `parity_android.json` | `lumo-parity diff` | The Android side: 5 elements including `card_offer` at `height=16` and a `fab_add` that has no iOS twin. |
 | `parity_ios.json` | `lumo-parity diff` | The iOS side: paired with `parity_android.json`. `card_offer` is at `height=48` (the classic "iOS uses 3× because Retina" junior bug), `nav_back` is at 44 pt (legitimate platform default — Lumo whitelists it), `fab_add` is missing entirely. |
 | `lumo.config.json` | `lumo-parity diff --config` | Tiny design system: `primary_button_height: 56`. Both Android and iOS layouts comply, so this config doesn't add findings — it's here as the "happy path" example. Edit it to `48` and re-run parity to see two new `design_system_height_mismatch_*` findings appear. |
+| `source_bad_compose.kt` | `lumo-source check` | Compose anchor — one of each: `Modifier.size(32.dp)` (a11y), `Color(0xFFAA0000)` (token), `RoundedCornerShape(13.dp)` (consistency). Includes `MaterialTheme.*` counter-cases that must NOT trip the checker. |
+| `source_bad_swiftui.swift` | `lumo-source check` | SwiftUI anchor — one of each: `.frame(width: 32, height: 32)` (a11y, HIG 44pt), `Color(red:green:blue:)` (token), `.cornerRadius(13)` (consistency). Includes `Color.red` and `Color("brandPrimary")` counter-cases that must NOT trip the checker. |
 
 ## Layout JSON schema (quick reference)
 
