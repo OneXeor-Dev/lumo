@@ -95,16 +95,74 @@ DEFAULT_TEXT_HEIGHT_DP = 20.0
 DEFAULT_ICON_SIZE_DP = 24.0
 DEFAULT_FAB_SIZE_DP = 56.0
 DEFAULT_ICON_BUTTON_SIZE_DP = 48.0
+DEFAULT_DIVIDER_HEIGHT_DP = 1.0
+DEFAULT_APP_BAR_HEIGHT_DP = 64.0
+DEFAULT_NAV_BAR_HEIGHT_DP = 80.0
+DEFAULT_LIST_ITEM_HEIGHT_DP = 56.0
 
 # Known container composables — their children stack along an axis.
-COLUMN_LIKE = frozenset({"Column"})
-ROW_LIKE = frozenset({"Row"})
+# LazyColumn / LazyRow are scrollable variants; for v1 we treat them
+# like their non-lazy counterparts (the offset math is identical for
+# fixed children; runtime virtualization only matters when there's a
+# variable item count, which we already mark unresolved separately).
+COLUMN_LIKE = frozenset({"Column", "LazyColumn"})
+ROW_LIKE = frozenset({"Row", "LazyRow"})
 BOX_LIKE = frozenset({"Box", "Card", "Surface"})
+
+# Scaffold is a Material 3 layout root: it takes named-arg lambdas
+# (`topBar`, `bottomBar`, `floatingActionButton`, `snackbarHost`) plus a
+# trailing lambda for content. For v1 we render only the content lambda
+# as a Column — that's where 95% of the screen lives. The named-arg
+# lambdas would need a separate parser to extract; deferred to 0.2.x.
+# Same rule for Surface/Card when used as a root wrapper.
+SCAFFOLD_LIKE = frozenset({"Scaffold", "BottomSheetScaffold", "ModalBottomSheetLayout"})
+
+# Compose side-effect / no-layout composables — must not render anything,
+# must not surface as "unknown". They are platform-known calls that
+# happen to have no visual presence. Skip them silently.
+COMPOSE_NO_LAYOUT = frozenset({
+    "LaunchedEffect",
+    "SideEffect",
+    "DisposableEffect",
+    "rememberCoroutineScope",  # Pascal-ish but it's a remember-fn, not visual
+    "remember",
+})
+
+# Decompose / navigation hosts — they render the active child of a Value
+# stack. We can't know the child statically, so we emit a single
+# `ast-unresolved` element with a navigation-specific reason (so the
+# user sees "I should render this with a target screen" rather than
+# "unknown composable: Children"). Distinct treatment vs unknowns.
+COMPOSE_NAV_HOSTS = frozenset({
+    "Children",
+    "ChildStack",
+    "ChildSlot",
+    "ChildOverlay",
+    "ChildPages",
+    "NavHost",
+})
+
+# Theme wrappers — top-level composables that introduce a theme but
+# don't change layout. Their trailing lambda renders directly in the
+# parent's ctx, no offset / size change. We match by exact name OR by
+# *Theme suffix heuristic.
+THEME_WRAPPERS_EXACT = frozenset({"MaterialTheme"})
 
 # Known atom composables — they don't stack children, but they ARE
 # emitted as a layout element.
 ATOM_COMPOSABLES: dict[str, str] = {
     "Text": "text",
+    "HorizontalDivider": "divider",
+    "VerticalDivider": "divider",
+    "Divider": "divider",
+    "TopAppBar": "app_bar",
+    "CenterAlignedTopAppBar": "app_bar",
+    "LargeTopAppBar": "app_bar",
+    "MediumTopAppBar": "app_bar",
+    "BottomAppBar": "app_bar",
+    "NavigationBar": "nav_bar",
+    "NavigationRail": "nav_bar",
+    "ListItem": "list_item",
     "Button": "primary_action",
     "OutlinedButton": "primary_action",
     "TextButton": "primary_action",
@@ -131,9 +189,29 @@ ALL_KNOWN_COMPOSABLES = (
 # ---------------- SwiftUI ----------------
 
 # Container views — children stack along an axis (or overlay for ZStack).
-VSTACK_LIKE = frozenset({"VStack"})
-HSTACK_LIKE = frozenset({"HStack"})
+# LazyVStack/LazyHStack are scrollable variants; treat them like the
+# non-lazy counterparts (static-AST offset math is identical).
+# List / Form are vertical stacks with built-in row chrome — for v1 we
+# treat them as VStack (the row chrome height is per-platform and we
+# already cover ListItem-style heights via atom defaults).
+VSTACK_LIKE = frozenset({"VStack", "LazyVStack", "List", "Form", "Section"})
+HSTACK_LIKE = frozenset({"HStack", "LazyHStack"})
 ZSTACK_LIKE = frozenset({"ZStack", "Group"})
+
+# SwiftUI passthrough wrappers — they don't add layout, just behaviour.
+# `ScrollView { … }` is the most common one; the content stacks like
+# a VStack inside its own bounds. NavigationView / NavigationStack /
+# NavigationSplitView are layout passthroughs in our static model
+# (nav chrome is platform-managed). ScrollViewReader and GeometryReader
+# also act as transparent wrappers for layout purposes.
+SWIFTUI_PASSTHROUGH = frozenset({
+    "ScrollView",
+    "ScrollViewReader",
+    "GeometryReader",
+    "NavigationView",
+    "NavigationStack",
+    "NavigationSplitView",
+})
 
 # Atom views and their roles. Defaults match Compose where they overlap
 # so cross-platform parity diffs stay meaningful: a 44pt iOS button and
@@ -575,6 +653,46 @@ def _find_composable_body(root: Node, src: bytes, target: str | None) -> Node | 
     return composables[0][1]
 
 
+# Lazy DSL builders — `item { ... }` and `items(N) { it -> ... }` appear
+# inside LazyColumn / LazyRow. They are lowercase, so the
+# `_is_composable_candidate_call` heuristic would normally reject them.
+# Keep them whitelisted so LazyColumn children render through.
+LAZY_DSL_BUILDERS = frozenset({"item", "items", "itemsIndexed", "stickyHeader"})
+
+
+def _is_composable_candidate_call(call: Node, src: bytes) -> bool:
+    """True when a call_expression LOOKS like a composable invocation.
+
+    The 0.1.1 evaluator treated every call_expression in a body as a
+    candidate, which produced false positives on dogfood:
+      - `state.value.let { ... }` — scope function, callee is a
+        `navigation_expression`; "let" came out as an "unknown composable"
+      - `val state by component.model.subscribeAsState()` — property
+        delegate; subscribeAsState came out as unknown
+      - `component.children` — property accessor (no parens), shouldn't
+        appear at all
+
+    The filter: the innermost call_expression on the receiver chain must
+    have a bare `identifier` / `simple_identifier` callee (not a
+    `navigation_expression`), AND that identifier must start with an
+    uppercase letter (Compose convention — every composable is
+    PascalCase; scope functions, property accessors, and helper calls
+    are camelCase). The exception is `LAZY_DSL_BUILDERS` (`item`,
+    `items`, `itemsIndexed`, `stickyHeader`) — these are the lowercase
+    DSL builders inside Lazy* and are treated specially in `_emit`.
+    """
+    inner = _call_inner_call(call)
+    if not inner.children:
+        return False
+    callee = inner.children[0]
+    if callee.type not in ("identifier", "simple_identifier"):
+        return False
+    name = _node_text(callee, src).strip()
+    if not name:
+        return False
+    return name[0].isupper() or name in LAZY_DSL_BUILDERS
+
+
 def _iter_top_level_calls(body: Node, src: bytes) -> list[Node]:
     """Return the top-level call_expression nodes within a function body.
 
@@ -592,7 +710,7 @@ def _iter_top_level_calls(body: Node, src: bytes) -> list[Node]:
             break
     calls: list[Node] = []
     for ch in container.children:
-        if ch.type == "call_expression":
+        if ch.type == "call_expression" and _is_composable_candidate_call(ch, src):
             calls.append(ch)
     return calls
 
@@ -668,11 +786,13 @@ def _call_trailing_lambda(call: Node, src: bytes) -> Node | None:
     return None
 
 
-def _lambda_calls(lam: Node) -> list[Node]:
+def _lambda_calls(lam: Node, src: bytes) -> list[Node]:
     """Return the top-level call_expressions inside a lambda body.
 
     tree-sitter-kotlin shape: `annotated_lambda → lambda_literal → '{' <calls...> '}'`.
     Some builds insert a `statements` container; both are handled.
+    Filtered through `_is_composable_candidate_call` so scope functions
+    (`.let { … }`) and property accessors do not become phantom children.
     """
     # Drill through annotated_lambda to lambda_literal if needed.
     cur = lam
@@ -693,7 +813,7 @@ def _lambda_calls(lam: Node) -> list[Node]:
             break
     calls: list[Node] = []
     for ch in container.children:
-        if ch.type == "call_expression":
+        if ch.type == "call_expression" and _is_composable_candidate_call(ch, src):
             calls.append(ch)
     return calls
 
@@ -762,6 +882,9 @@ def _atom_default_size(role: str, mods: Modifiers, ctx: Ctx) -> tuple[float, flo
             # FAB uses its own constant. Buttons fall back to wrap (we don't
             # know text width); approximate with a sensible default.
             w = DEFAULT_FAB_SIZE_DP if "Fab" in role else 0.0
+        elif role in ("divider", "app_bar", "nav_bar", "list_item"):
+            # Bars and dividers default to full parent width.
+            w = ctx.available_w
         else:
             w = 0.0
     if h is None:
@@ -773,6 +896,14 @@ def _atom_default_size(role: str, mods: Modifiers, ctx: Ctx) -> tuple[float, flo
             h = DEFAULT_BUTTON_HEIGHT_DP
         elif role == "text":
             h = DEFAULT_TEXT_HEIGHT_DP
+        elif role == "divider":
+            h = DEFAULT_DIVIDER_HEIGHT_DP
+        elif role == "app_bar":
+            h = DEFAULT_APP_BAR_HEIGHT_DP
+        elif role == "nav_bar":
+            h = DEFAULT_NAV_BAR_HEIGHT_DP
+        elif role == "list_item":
+            h = DEFAULT_LIST_ITEM_HEIGHT_DP
         else:
             h = 0.0
     return float(w), float(h)
@@ -862,7 +993,7 @@ def _render_axis(
 
     children: list[_CallSpec] = []
     if spec.lambda_body is not None:
-        for call in _lambda_calls(spec.lambda_body):
+        for call in _lambda_calls(spec.lambda_body, src):
             cs = _parse_call(call, src)
             if cs is not None:
                 children.append(cs)
@@ -959,7 +1090,7 @@ def _render_box(
     if spec.lambda_body is None:
         return spec.mods.pad_start + spec.mods.pad_end, spec.mods.pad_top + spec.mods.pad_bottom
     max_w, max_h = 0.0, 0.0
-    for call in _lambda_calls(spec.lambda_body):
+    for call in _lambda_calls(spec.lambda_body, src):
         cs = _parse_call(call, src)
         if cs is None:
             continue
@@ -967,6 +1098,44 @@ def _render_box(
         max_w = max(max_w, w)
         max_h = max(max_h, h)
     return max_w + spec.mods.pad_start + spec.mods.pad_end, max_h + spec.mods.pad_top + spec.mods.pad_bottom
+
+
+def _is_theme_wrapper(name: str) -> bool:
+    """Heuristic: `<Anything>Theme` is treated as a passthrough wrapper.
+
+    Compose convention: theme wrappers are PascalCase names ending in
+    `Theme` (`MaterialTheme`, `AppTheme`, `MoneyManTheme`,
+    `CardPlazoTheme`). They wrap content but do not add layout.
+    """
+    if name in THEME_WRAPPERS_EXACT:
+        return True
+    return len(name) > len("Theme") and name.endswith("Theme")
+
+
+def _render_passthrough(
+    spec: _CallSpec,
+    src: bytes,
+    ctx: Ctx,
+    id_counter: dict[str, int],
+    out: list[Element],
+) -> tuple[float, float]:
+    """Render the trailing lambda's children directly in the parent's ctx.
+
+    No offset / size change — the wrapper is layout-transparent. Used
+    for theme wrappers (`MaterialTheme { … }`, `*Theme { … }`) and
+    similar no-layout composables.
+    """
+    if spec.lambda_body is None:
+        return 0.0, 0.0
+    max_w, max_h = 0.0, 0.0
+    for call in _lambda_calls(spec.lambda_body, src):
+        cs = _parse_call(call, src)
+        if cs is None:
+            continue
+        w, h = _emit(cs, src, ctx, id_counter, out)
+        max_w = max(max_w, w)
+        max_h = max(max_h, h)
+    return max_w, max_h
 
 
 def _emit(
@@ -977,6 +1146,48 @@ def _emit(
     out: list[Element],
 ) -> tuple[float, float]:
     """Dispatch + emit a single composable. Returns its used (w, h)."""
+    # No-layout side effects (`LaunchedEffect`, `SideEffect`,
+    # `DisposableEffect`, `remember*`) — they appear in real screens but
+    # have no visual presence. Silently consume; don't emit "unknown".
+    if spec.name in COMPOSE_NO_LAYOUT:
+        return 0.0, 0.0
+    # Decompose / navigation hosts render the active child of a runtime
+    # stack — we can't know which child statically. Emit a single
+    # nav-host element with a specific reason (distinct from "unknown
+    # composable") so users see what to do (re-run with the target screen).
+    if spec.name in COMPOSE_NAV_HOSTS:
+        eid = spec.mods.test_tag or _next_auto_id("nav_host", id_counter)
+        out.append(Element(
+            id=eid, role="nav_host",
+            x=None, y=None, w=None, h=None,
+            source="ast-unresolved",
+            reason=(
+                f"navigation host '{spec.name}' renders the active child "
+                "of a runtime stack — re-run lumo-render on the specific "
+                "target screen to see its layout"
+            ),
+        ))
+        return 0.0, 0.0
+    # Lazy DSL builders (`item { … }`, `items(N) { it -> … }`) are
+    # passthrough — their lambda holds the real children. We do not
+    # currently expand `items(N)` N times (would need static list /
+    # literal N) — we render the lambda body once. That's honest:
+    # one item's coordinates are right, the variable repetition is
+    # outside what static AST can resolve.
+    if spec.name in LAZY_DSL_BUILDERS:
+        return _render_passthrough(spec, src, ctx, id_counter, out)
+    # Theme wrappers — passthrough. Render the trailing lambda's
+    # children in the parent's ctx directly, no offset / size change.
+    # Matches `MaterialTheme { … }`, `AppTheme { … }`, custom
+    # `MoneyManTheme { … }` etc.
+    if _is_theme_wrapper(spec.name):
+        return _render_passthrough(spec, src, ctx, id_counter, out)
+    # Scaffold — render its trailing-lambda content as a Column.
+    # Named-arg lambdas (topBar / bottomBar / FAB) are out of scope for
+    # v1 and silently skipped; the content area is where the bulk of
+    # the screen lives anyway.
+    if spec.name in SCAFFOLD_LIKE:
+        return _render_column(spec, src, ctx, id_counter, out)
     # Containers
     if spec.name in COLUMN_LIKE:
         return _render_column(spec, src, ctx, id_counter, out)
@@ -1418,6 +1629,12 @@ def _emit_swift(
     out: list[Element],
 ) -> tuple[float, float]:
     """Dispatch + emit a single SwiftUI view. Returns its used (w, h)."""
+    # Passthrough wrappers — ScrollView, NavigationStack, etc. don't add
+    # layout; render their trailing closure children directly in the
+    # parent's ctx. Note: ScrollView's content stacks vertically by
+    # default but is unbounded; for static analysis we cap to ctx.
+    if spec.name in SWIFTUI_PASSTHROUGH:
+        return _render_swift_passthrough(spec, src, ctx, id_counter, out)
     if spec.name in VSTACK_LIKE:
         return _render_swift_axis(spec, src, ctx, "column", id_counter, out)
     if spec.name in HSTACK_LIKE:
@@ -1589,6 +1806,27 @@ def _render_swift_axis(
         used_w + spec.mods.pad_start + spec.mods.pad_end,
         used_h + spec.mods.pad_top + spec.mods.pad_bottom,
     )
+
+
+def _render_swift_passthrough(
+    spec: _SwiftSpec,
+    src: bytes,
+    ctx: Ctx,
+    id_counter: dict[str, int],
+    out: list[Element],
+) -> tuple[float, float]:
+    """Render the trailing closure's children directly in the parent's ctx.
+
+    SwiftUI passthrough wrappers (ScrollView, NavigationStack,
+    NavigationView, GeometryReader, ScrollViewReader) don't add layout
+    in our static model — they wrap behaviour. Children stack
+    vertically by default (ScrollView's default content axis), which we
+    emulate by reusing the axis renderer.
+    """
+    if spec.lambda_body is None:
+        return 0.0, 0.0
+    # Treat as a vertical stack with the parent ctx unchanged.
+    return _render_swift_axis(spec, src, ctx, "column", id_counter, out)
 
 
 def _render_swift_overlay(

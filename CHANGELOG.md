@@ -5,6 +5,96 @@ All notable changes to Lumo are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and Lumo adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2] — 2026-05-18
+
+Coverage patch driven by a dogfood run against 18 real production
+screens from CRDES / MMES / MMMX / kmp-common-components (10 Compose,
+8 SwiftUI). Initial coverage was 21.2% — most unresolved entries were
+either (a) standard library composables the evaluator simply didn't
+know yet, (b) false positives from over-eager AST traversal, or (c)
+side-effect calls with no visual presence being surfaced as "unknown".
+
+### Fixed
+
+- **False-positive call detection.** The 0.1.1 evaluator treated every
+  `call_expression` in a function body as a composable candidate.
+  Property accessors (`state.value.let { … }`) and scope functions
+  (`.let`, `.run`, `.apply`) produced phantom "unknown composable"
+  entries like `let`, `Children`, even raw identifier accessors.
+  Added `_is_composable_candidate_call` heuristic: only innermost
+  `identifier` callees starting with uppercase are candidates. Scope
+  functions and property chains are silently skipped — they cannot
+  contribute layout statically anyway.
+- **No-layout side effects skipped silently.** `LaunchedEffect`,
+  `SideEffect`, `DisposableEffect`, `remember`, `rememberCoroutineScope`
+  are platform composables with no visual presence. Used to surface as
+  "unknown composable" noise; now consumed silently.
+
+### Added
+
+- **Scaffold and Material 3 scaffold variants.** `Scaffold`,
+  `BottomSheetScaffold`, `ModalBottomSheetLayout` render their trailing
+  lambda content as a Column. Named-arg lambdas (`topBar` / `bottomBar`
+  / `floatingActionButton`) are out of scope for v1 and silently
+  skipped — content area is where 95% of the screen lives.
+- **Theme wrappers as layout passthrough.** `MaterialTheme { … }`,
+  `AppTheme { … }`, any `*Theme { … }` (heuristic on the suffix), and
+  custom theme wrappers like `MoneyManTheme` / `CardPlazoTheme` are
+  rendered as passthrough — their trailing lambda children render in
+  the parent's ctx directly, no offset / size change.
+- **LazyColumn / LazyRow** treated as Column / Row for static
+  analysis. `item { … }` and `items(N) { it -> … }` DSL builders are
+  recognized and their trailing lambdas walked. We don't expand `items(N)`
+  N times (variable count is outside static AST) — one item renders.
+- **Decompose / nav hosts surface a distinct reason.** `Children`,
+  `ChildStack`, `ChildSlot`, `ChildOverlay`, `ChildPages`, `NavHost`
+  produce a single `ast-unresolved` element with role `nav_host` and
+  a reason explaining that they render a runtime stack — not a generic
+  "unknown composable: Children".
+- **Material 3 atoms.** `HorizontalDivider` (full-width, 1dp default),
+  `VerticalDivider`, `Divider` (M2 alias), `TopAppBar` /
+  `CenterAlignedTopAppBar` / `LargeTopAppBar` / `MediumTopAppBar` /
+  `BottomAppBar` (64dp default), `NavigationBar` / `NavigationRail`
+  (80dp default), `ListItem` (56dp default). All accept `Modifier` and
+  size override.
+- **SwiftUI containers expanded.** `ScrollView`, `ScrollViewReader`,
+  `GeometryReader`, `NavigationView`, `NavigationStack`,
+  `NavigationSplitView` render as passthrough (no layout change,
+  children stack vertically inside). `LazyVStack` → VStack,
+  `LazyHStack` → HStack, `List` / `Form` / `Section` → vertical stack.
+
+### Changed
+
+- The `_lambda_calls` helper now also applies the
+  `_is_composable_candidate_call` filter, so scope-function lambdas in
+  trailing-closure position don't leak phantom children.
+
+### Notes
+
+- **Dogfood coverage: 21.2% → 28.6% on 18 production screens.** Better,
+  but a long way from the 60–80% target I floated in earlier planning
+  notes. The remaining unresolved entries on these screens are
+  **app-specific custom composables / views** — `SettingsBlockView`,
+  `SmsCodeTimerSection`, `EmploymentIncomeFieldsView`, etc. — defined
+  in other files of the same project. The evaluator only reads ONE
+  source file; it cannot resolve composables that live elsewhere.
+  Honest limitation, not a bug.
+- **The path to higher coverage on real projects is multi-file AST
+  resolution** (read the whole module, treat in-project composables as
+  containers whose bodies we know). That's a 0.3.0 / 0.4.0 effort and
+  needs its own design doc. For now, lumo-render is best on screens
+  that compose mostly from standard library widgets (Material 3 / HIG)
+  — exactly what the test suite covers and exactly where the value
+  lands cleanly.
+- Test suite: 237 → **249** (+8 Compose tests for Scaffold / Theme /
+  Lazy / divider / app-bar / scope-function filter / property-access
+  filter, +4 SwiftUI tests for ScrollView / NavigationStack / List /
+  LazyVStack). 100% pass, mypy strict clean.
+- The Phase 4 section in ROADMAP now documents the **3-tier accuracy
+  hierarchy** (`lumo-render` → `snapshot_input` → `lumo-build`). The
+  latter — LLM-driven runtime build + Paparazzi/XCUITest evaluation —
+  is documented as a future option but explicitly NOT a 0.x.y target.
+
 ## [0.1.1] — 2026-05-18
 
 Documentation + MCP completeness patch. 0.1.0 shipped `lumo-render`

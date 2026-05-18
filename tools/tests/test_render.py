@@ -485,3 +485,148 @@ def test_report_to_dict_carries_screen_and_coverage() -> None:
     assert d["source"] == "ast-resolved"
     assert isinstance(d["elements"], list)
     assert len(d["elements"]) == 1
+
+
+# ============================================================================
+# 0.1.2 — Scaffold / Theme / Lazy / M3 atoms / false-positive filter
+# ============================================================================
+
+
+def test_scaffold_renders_content_as_column() -> None:
+    src = """
+    @Composable
+    fun X() {
+        Scaffold(topBar = {}) { padding ->
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text("a", modifier = Modifier.testTag("t"))
+            }
+        }
+    }
+    """
+    r = render_compose(src, screen_width=360, screen_height=800)
+    t = _by_id(r.elements, "t")
+    assert t.source == "ast-resolved"
+    assert t.x == 16.0 and t.y == 16.0
+
+
+def test_theme_wrapper_is_passthrough() -> None:
+    src = """
+    @Composable
+    fun X() {
+        MoneyManTheme {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text("a", modifier = Modifier.testTag("t"))
+            }
+        }
+    }
+    """
+    r = render_compose(src, screen_width=360, screen_height=800)
+    t = _by_id(r.elements, "t")
+    # Same coordinates as if MoneyManTheme weren't there.
+    assert t.x == 16.0 and t.y == 16.0
+
+
+def test_material_theme_is_passthrough() -> None:
+    src = """
+    @Composable
+    fun X() {
+        MaterialTheme {
+            Text("a", modifier = Modifier.testTag("t"))
+        }
+    }
+    """
+    r = render_compose(src)
+    t = _by_id(r.elements, "t")
+    assert t.x == 0.0 and t.y == 0.0
+
+
+def test_lazy_column_renders_items() -> None:
+    src = """
+    @Composable
+    fun X() {
+        LazyColumn {
+            item { Text("a", modifier = Modifier.testTag("head")) }
+            items(5) { idx -> Text("b", modifier = Modifier.testTag("row")) }
+        }
+    }
+    """
+    r = render_compose(src)
+    head = _by_id(r.elements, "head")
+    row = _by_id(r.elements, "row")
+    assert head.source == "ast-resolved"
+    assert row.source == "ast-resolved"
+    assert head.y == 0.0
+    assert row.y == 20.0  # one text default h
+
+
+def test_horizontal_divider_full_width_1dp() -> None:
+    src = """
+    @Composable
+    fun X() {
+        Column {
+            HorizontalDivider(modifier = Modifier.testTag("d"))
+        }
+    }
+    """
+    r = render_compose(src, screen_width=360, screen_height=800)
+    d = _by_id(r.elements, "d")
+    assert d.role == "divider"
+    assert d.w == 360.0
+    assert d.h == 1.0
+
+
+def test_top_app_bar_default_64dp_height() -> None:
+    src = """
+    @Composable
+    fun X() {
+        Column {
+            TopAppBar(title = { Text("hi") }, modifier = Modifier.testTag("bar"))
+        }
+    }
+    """
+    r = render_compose(src, screen_width=360, screen_height=800)
+    bar = _by_id(r.elements, "bar")
+    assert bar.role == "app_bar"
+    assert bar.h == 64.0
+    assert bar.w == 360.0
+
+
+def test_scope_function_let_is_not_a_phantom_composable() -> None:
+    # The false-positive that hit dogfood: `state.value.let { ... }`
+    # parsed as a "let" composable. After the candidate filter, scope
+    # functions on a chain are silently ignored.
+    src = """
+    @Composable
+    fun X() {
+        val state = ""
+        state.let { s ->
+            Text(s, modifier = Modifier.testTag("t"))
+        }
+    }
+    """
+    r = render_compose(src)
+    # The Text inside .let does NOT render — we don't enter scope-function
+    # lambdas (callee navigation_expression, lowercase let). This is honest:
+    # we cannot statically prove the scope function runs, so we skip it.
+    # The acceptable behaviour is "nothing emitted" — not a phantom "let"
+    # element. (0.1.1 emitted unresolved with role="let".)
+    ids = [e.id for e in r.elements]
+    assert "t" not in ids
+    # And no element has role "let".
+    assert all(e.role != "let" for e in r.elements)
+
+
+def test_property_access_call_is_not_a_phantom_composable() -> None:
+    # `val state by component.subscribeAsState()` — the call's callee is
+    # navigation_expression `component.subscribeAsState`. Must not appear
+    # as an element.
+    src = """
+    @Composable
+    fun X(component: Component) {
+        val state by component.subscribeAsState()
+        Text("a", modifier = Modifier.testTag("real"))
+    }
+    """
+    r = render_compose(src)
+    ids = {e.id for e in r.elements}
+    assert ids == {"real"}

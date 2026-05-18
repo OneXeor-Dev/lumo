@@ -491,3 +491,76 @@ def test_login_screen_compose_and_swiftui_produce_matching_topology() -> None:
     rc_cta = _by_id(rc.elements, "cta")
     rs_cta = _by_id(rs.elements, "cta")
     assert (rc_cta.x, rc_cta.y, rc_cta.w, rc_cta.h) == (rs_cta.x, rs_cta.y, rs_cta.w, rs_cta.h)
+
+
+# ============================================================================
+# 0.1.2 — passthrough wrappers + container expansions
+# ============================================================================
+
+
+def test_scrollview_is_passthrough() -> None:
+    src = """
+    struct V: View {
+        var body: some View {
+            ScrollView {
+                VStack {
+                    Text("hi").accessibilityIdentifier("t")
+                }.padding(16)
+            }
+        }
+    }
+    """
+    r = render_swiftui(src, screen_width=375, screen_height=812)
+    t = _by_id(r.elements, "t")
+    assert t.x == 16.0 and t.y == 16.0
+
+
+def test_navigation_stack_is_passthrough() -> None:
+    src = """
+    struct V: View {
+        var body: some View {
+            NavigationStack {
+                Text("hi").accessibilityIdentifier("t")
+            }
+        }
+    }
+    """
+    r = render_swiftui(src, screen_width=375, screen_height=812)
+    t = _by_id(r.elements, "t")
+    assert t.source == "ast-resolved"
+
+
+def test_list_renders_like_vstack() -> None:
+    src = """
+    struct V: View {
+        var body: some View {
+            List {
+                Text("a").accessibilityIdentifier("t1")
+                Text("b").accessibilityIdentifier("t2")
+            }
+        }
+    }
+    """
+    r = render_swiftui(src, screen_width=375, screen_height=812)
+    t1 = _by_id(r.elements, "t1")
+    t2 = _by_id(r.elements, "t2")
+    assert t1.y == 0.0
+    assert t2.y == 20.0  # text default h
+
+
+def test_lazy_vstack_renders_like_vstack() -> None:
+    src = """
+    struct V: View {
+        var body: some View {
+            LazyVStack {
+                Text("a").accessibilityIdentifier("t1")
+                Text("b").accessibilityIdentifier("t2")
+            }
+        }
+    }
+    """
+    r = render_swiftui(src, screen_width=375, screen_height=812)
+    t1 = _by_id(r.elements, "t1")
+    t2 = _by_id(r.elements, "t2")
+    assert t1.y == 0.0
+    assert t2.y == 20.0

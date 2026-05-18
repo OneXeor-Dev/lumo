@@ -303,6 +303,42 @@ lumo/
 
 Architecturally enabled, not built in v1.
 
+### Tiered accuracy hierarchy (long-term shape)
+
+The three render paths sit on a clear cost / accuracy / portability curve:
+
+| Tier | Tool | Cost | Accuracy | Portability |
+|---|---|---|---|---|
+| 1 | `lumo-render compose/swiftui` (shipped 0.1.0) | ~0s, zero deps | ast-resolved (~60–80% on typical screens, 20–30% on heavily themed) | Any machine, any project state |
+| 2 | `snapshot_input` (Phase 3, planned) | seconds — runs an existing snapshot test | measured | Requires the project to have Roborazzi / swift-snapshot-testing tests |
+| 3 | **`lumo-build` — LLM-driven runtime evaluator** | minutes — compiles + runs | measured | Requires full toolchain (Android SDK + Gradle, or Xcode + simctl), buildable module, macOS for iOS |
+
+`lumo-build` is the *optional fallback* the AI client invokes when it
+has access to the toolchain AND the user explicitly asks for the
+highest accuracy. The model would:
+
+- **Compose:** generate a temp Paparazzi / Roborazzi test wrapping the
+  target `@Composable`, run `./gradlew :module:testDebugUnitTest`
+  headless, parse the `ViewInfo` tree (or a small custom dumper),
+  serialise to Lumo JSON with `source: "measured"`.
+- **SwiftUI:** generate a temp XCUITest that hosts the `View`, run
+  `xcodebuild test` against a booted simulator, dump
+  `XCUIApplication`'s accessibility tree, serialise to the same JSON.
+
+**Why this is "consider only after snapshot_input ships":** the
+engineering cost is high (per-project build config awareness, Paparazzi
+version sniffing, mac-only for iOS, KMP multi-target gotchas, broken
+modules), and the value is duplicative of `snapshot_input` — both end
+at `source: "measured"`. `snapshot_input` requires user test
+infrastructure but is point-of-use simple; `lumo-build` requires no
+test infrastructure but is orchestrator-heavy. Ship `snapshot_input`
+first, see demand, then decide.
+
+**This is NOT a 0.x.y target.** Tracking here so the option doesn't
+get lost; not on any active sprint.
+
+### Other Phase 4 ideas
+
 - GUI installer (Electron / Tauri).
 - Flutter + React Native support.
 - Optional cloud companion: team sync, cross-project memory, opt-in telemetry.
