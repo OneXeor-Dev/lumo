@@ -102,7 +102,7 @@ jobs:
           python -m venv /tmp/e2e-venv
           /tmp/e2e-venv/bin/pip install dist/*.whl
 
-      - name: All seven console scripts exist
+      - name: All eight console scripts exist
         run: |
           test -x /tmp/e2e-venv/bin/lumo-wcag
           test -x /tmp/e2e-venv/bin/lumo-theory
@@ -110,6 +110,7 @@ jobs:
           test -x /tmp/e2e-venv/bin/lumo-source
           test -x /tmp/e2e-venv/bin/lumo-audit
           test -x /tmp/e2e-venv/bin/lumo-figma
+          test -x /tmp/e2e-venv/bin/lumo-render
           test -x /tmp/e2e-venv/bin/lumo-mcp
 
       - name: lumo-wcag check exits non-zero on a known-fail pair
@@ -157,16 +158,27 @@ jobs:
 
       - name: lumo-source flags every plant in the SwiftUI anchor
         run: |
-          out="$(/tmp/e2e-venv/bin/lumo-source check --file examples/source_bad_swiftui.swift || true)"
-          echo "$out"
-          # Anchor file has exactly one of each — Apple HIG 44pt violation,
-          # Color(red:green:blue:), and off-scale cornerRadius. The
-          # asset-catalog Color("brandPrimary") and Color.red must NOT
-          # be flagged.
-          echo "$out" | grep -q 'undersized_tap_target'
-          echo "$out" | grep -q 'hardcoded_color'
-          echo "$out" | grep -q 'off_scale_radius'
-          ! echo "$out" | grep -q 'Color("brandPrimary")'
+          # Use JSON output so we assert on findings, not on the prose
+          # recommendation (which mentions `Color("brandPrimary")` as an
+          # example of what the user SHOULD use — we don't want that to
+          # trip our "must not flag asset-catalog colours" assertion).
+          /tmp/e2e-venv/bin/lumo-source check --file examples/source_bad_swiftui.swift --json > /tmp/swiftui-findings.json || true
+          cat /tmp/swiftui-findings.json
+          # Anchor file has exactly one of each finding.
+          /tmp/e2e-venv/bin/python - <<'PYEOF'
+          import json
+          d = json.load(open("/tmp/swiftui-findings.json"))
+          checks = {f["check"] for f in d["findings"]}
+          assert "undersized_tap_target" in checks, checks
+          assert "hardcoded_color" in checks, checks
+          assert "off_scale_radius" in checks, checks
+          # Asset-catalog (`Color("brandPrimary")`) and named-constant
+          # (`Color.red`) colours must NOT trip a finding — verify by
+          # walking snippets, not prose. Snippets are short.
+          snippets = [f.get("snippet", "") for f in d["findings"]]
+          assert all("brandPrimary" not in s for s in snippets), snippets
+          assert all("Color.red" not in s for s in snippets), snippets
+          PYEOF
 
       - name: lumo-audit aggregates across the examples/ tree
         run: |
@@ -180,6 +192,42 @@ jobs:
           echo "$out" | grep -q '`undersized_tap_target`: 2'
           echo "$out" | grep -q 'Measured scale'
           echo "$out" | grep -q 'Off-scale values:'
+
+      - name: lumo-render compose produces ast-resolved coordinates
+        run: |
+          # Render the Compose anchor with a known screen size; the
+          # output must contain at least one ast-resolved element with
+          # finite x/y. This is the integration test for the AST
+          # evaluator from the wheel (not just the pure-Python tests).
+          /tmp/e2e-venv/bin/lumo-render compose \
+            --file examples/source_bad_compose.kt \
+            --screen-width 411 --screen-height 891 \
+            --json > /tmp/render-compose.json || true
+          cat /tmp/render-compose.json
+          /tmp/e2e-venv/bin/python - <<'PYEOF'
+          import json
+          d = json.load(open("/tmp/render-compose.json"))
+          assert d["screen"]["unit"] == "dp"
+          assert any(e.get("source") == "ast-resolved" for e in d["elements"]), d
+          PYEOF
+
+      - name: lumo-render swiftui produces ast-resolved coordinates
+        run: |
+          /tmp/e2e-venv/bin/lumo-render swiftui \
+            --file examples/source_bad_swiftui.swift \
+            --screen-width 411 --screen-height 891 \
+            --json > /tmp/render-swiftui.json || true
+          cat /tmp/render-swiftui.json
+          /tmp/e2e-venv/bin/python - <<'PYEOF'
+          import json
+          d = json.load(open("/tmp/render-swiftui.json"))
+          assert d["screen"]["unit"] == "pt"
+          # SwiftUI anchor file may resolve nothing if its content uses
+          # only token references; either way, must not crash and must
+          # emit a valid schema.
+          assert "elements" in d
+          assert "coverage" in d
+          PYEOF
 
       - name: lumo-figma reports a clear auth error when FIGMA_TOKEN is unset
         run: |

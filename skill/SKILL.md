@@ -410,18 +410,37 @@ What this tool does:
   + the common modifier transforms and produces `(x, y, w, h)` for
   every element that can be derived statically.
 - **Compose:** `Column` / `Row` / `Box` / `Card` / `Surface`
-  containers; `Text`, `Button` (and outlined / text / elevated /
-  tonal variants), `IconButton` (and filled / tonal / outlined
-  variants), `Icon`, `Image`, `FloatingActionButton` (and small /
-  large / extended), `Spacer` atoms; `padding(...)` (uniform + named
+  containers; `LazyColumn` / `LazyRow` (with `item { … }` and
+  `items(N) { … }` DSL builders recognized — one item rendered, not
+  N repetitions); `Scaffold` / `BottomSheetScaffold` /
+  `ModalBottomSheetLayout` (content lambda rendered as Column, named-
+  arg lambdas like `topBar` are v1-skipped); `MaterialTheme` and any
+  `*Theme` wrapper as layout passthrough (so `MoneyManTheme { Scaffold
+  { … } }` doesn't add offset). Atoms: `Text`, `Button` (+ outlined /
+  text / elevated / tonal variants), `IconButton` (+ filled / tonal /
+  outlined variants), `Icon`, `Image`, `FloatingActionButton` (+ small
+  / large / extended), `Spacer`, plus M3 chrome — `HorizontalDivider`
+  / `VerticalDivider` / `Divider`, `TopAppBar` family (64dp default),
+  `BottomAppBar`, `NavigationBar` / `NavigationRail` (80dp),
+  `ListItem` (56dp). Modifiers: `padding(...)` (uniform + named
   horizontal/vertical/sides), `size`/`width`/`height`,
   `fillMaxWidth/Height/Size`, `offset(x, y)`, `weight(N)` two-pass,
-  `wrapContentSize`, `testTag("id")`.
-- **SwiftUI:** `VStack` / `HStack` / `ZStack` / `Group` containers;
-  `Text`, `Button`, `Image`, `Label`, `Spacer`, `Rectangle`,
-  `Circle`, `RoundedRectangle`, `Divider`, `Toggle`,
-  `NavigationLink`, `Link` atoms; `.padding()` in every form
-  (no-arg / value / edge enum + value), `.frame(width:height:)`,
+  `wrapContentSize`, `testTag("id")`. Side-effect composables
+  (`LaunchedEffect` / `SideEffect` / `DisposableEffect` / `remember`)
+  consumed silently — no visual presence. Decompose / nav hosts
+  (`Children`, `ChildStack`, `ChildSlot`, `ChildOverlay`,
+  `ChildPages`, `NavHost`) surface as a single `ast-unresolved`
+  element with role `nav_host` and a hint to re-run on the target
+  screen.
+- **SwiftUI:** `VStack` / `HStack` / `ZStack` / `Group` containers,
+  plus `LazyVStack` → VStack and `LazyHStack` → HStack. Passthrough
+  wrappers: `ScrollView`, `ScrollViewReader`, `GeometryReader`,
+  `NavigationView`, `NavigationStack`, `NavigationSplitView`,
+  `List` / `Form` / `Section` — render as a vertical stack with no
+  added offset. Atoms: `Text`, `Button`, `Image`, `Label`, `Spacer`,
+  `Rectangle`, `Circle`, `RoundedRectangle`, `Divider`, `Toggle`,
+  `NavigationLink`, `Link`; `.padding()` in every form (no-arg /
+  value / edge enum + value), `.frame(width:height:)`,
   `.frame(maxWidth: .infinity)` as fill-max marker, `.offset(x:y:)`,
   `.accessibilityIdentifier("id")`. `Spacer()` with no `.frame` acts
   as axis-flex (same two-pass rule as Compose `weight`).
@@ -472,9 +491,18 @@ What this tool **does not** do:
 - It does not resolve theme tokens. `Modifier.padding(Theme.spacing.md)`
   or `.padding(Theme.spacing.md)` mark every descendant as
   `ast-unresolved` — those values exist only at runtime.
-- It does not handle conditional rendering, lazy lists, or
-  state-driven sizing. Those screens will have low coverage and
-  many `ast-unresolved` entries — that is the correct result.
+- It does not handle conditional rendering or state-driven sizing.
+  Lazy lists are partially handled (`item { … }` rendered once;
+  `items(N) { … }` rendered once regardless of N) — true repetition
+  is outside static AST.
+- **It only reads one file at a time.** Custom composables defined
+  in OTHER files of the same project come back as `ast-unresolved`
+  with reason `"unknown composable: <Name>"`. Real-world dogfood
+  showed this is the dominant gap on production screens, where most
+  layout is composed from app-specific helpers (`SettingsBlockView`,
+  `SmsCodeTimerSection`, etc.). Multi-file resolution is on the
+  0.2.0 roadmap; until then, the tool's value is highest on screens
+  that mostly use standard library composables / SwiftUI built-ins.
 - It does not replace `snapshot_input` (Phase 3) for the last ~20%
   of accuracy. When measured coordinates are critical (final
   parity before ship, dynamic-type review), use real snapshot
