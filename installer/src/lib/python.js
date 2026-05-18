@@ -85,7 +85,7 @@ export async function installLumoTools(opts = {}) {
 
 /** Sanity check: each registered CLI binary actually exists in the venv. */
 export function listInstalledBinaries() {
-  const names = ["lumo-wcag", "lumo-theory", "lumo-parity", "lumo-source", "lumo-audit", "lumo-mcp"];
+  const names = ["lumo-wcag", "lumo-theory", "lumo-parity", "lumo-source", "lumo-audit", "lumo-figma", "lumo-mcp"];
   return names.map((name) => ({
     name,
     path: venvBinary(name),

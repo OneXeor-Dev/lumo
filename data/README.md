@@ -14,6 +14,8 @@ code:
   default spacing and radius scales
 - `tools/lumo/audit/core.py` — hardcoded skip directories
   (`.git`, `build`, `Pods`, `node_modules`, etc.)
+- `tools/lumo/figma/core.py` — Figma API base URL, default missing-token
+  threshold, supported Figma variable types
 
 `lumo-audit` and `lumo-source` share the same scale defaults today via
 direct imports — not via this directory. So far that has been adequate;

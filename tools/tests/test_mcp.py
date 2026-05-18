@@ -10,8 +10,9 @@ from __future__ import annotations
 
 import pytest
 
-from lumo.mcp.server import (
+from lumo.mcp.server import (  # noqa: F401  (lumo_figma_diff used by test below)
     lumo_audit_scan,
+    lumo_figma_diff,
     lumo_parity_diff,
     lumo_source_check_compose,
     lumo_source_check_swiftui,
@@ -43,6 +44,7 @@ async def test_server_registers_all_tools() -> None:
         "lumo_source_check_compose",
         "lumo_source_check_swiftui",
         "lumo_audit_scan",
+        "lumo_figma_diff",
     }
 
 
@@ -267,6 +269,44 @@ def test_audit_scan_wrapper_returns_expected_keys(tmp_path: object) -> None:
     # 13 should appear as an off-scale padding literal.
     padding_obs = next(o for o in via_mcp["scale_observations"] if o["kind"] == "padding")
     assert 13.0 in padding_obs["off_scale"]
+
+
+def test_figma_diff_wrapper_uses_figma_api_and_diffs(monkeypatch: object) -> None:
+    """Patch fetch_tokens at the server module level so we don't hit Figma."""
+    import sys
+    from lumo.figma.core import FigmaToken, FigmaTokens
+    server_module = sys.modules["lumo.mcp.server"]
+
+    fake = FigmaTokens(
+        file_key="FILE",
+        mode_label="default",
+        colors=(),
+        floats=(
+            FigmaToken(
+                id="1", name="spacing/lg", type="FLOAT", collection="X",
+                mode_name="default", value=24.0, value_canonical=24.0,
+                is_alias_resolved=True,
+            ),
+        ),
+    )
+    monkeypatch.setattr(  # type: ignore[attr-defined]
+        server_module, "figma_fetch_tokens", lambda *a, **kw: fake
+    )
+
+    audit = {
+        "scale_observations": [
+            {
+                "kind": "padding",
+                "values_by_frequency": [{"value": 24.0, "count": 7}],
+            }
+        ],
+        "findings": [],
+    }
+    out = lumo_figma_diff(file_key="FILE", audit_payload=audit)
+    assert out["file_key"] == "FILE"
+    assert out["summary_counts"]["matched"] == 1
+    assert out["matched"][0]["token"]["name"] == "spacing/lg"
+    assert out["matched"][0]["code_occurrences"] == 7
 
 
 def test_audit_scan_wrapper_respects_exclude(tmp_path: object) -> None:

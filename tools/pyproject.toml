@@ -30,6 +30,7 @@ dependencies = [
     "tree-sitter>=0.23",
     "tree-sitter-kotlin>=1.1",
     "tree-sitter-swift>=0.7",
+    "httpx>=0.27",
 ]
 
 [project.urls]
@@ -50,6 +51,7 @@ lumo-theory = "lumo.theory.cli:main"
 lumo-parity = "lumo.parity.cli:main"
 lumo-source = "lumo.source.cli:main"
 lumo-audit = "lumo.audit.cli:main"
+lumo-figma = "lumo.figma.cli:main"
 lumo-mcp = "lumo.mcp.server:main"
 
 [build-system]

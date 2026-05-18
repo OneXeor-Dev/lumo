@@ -25,6 +25,11 @@ from typing import Any, Literal
 from mcp.server.fastmcp import FastMCP
 
 from lumo.audit.core import AuditConfig, scan_repo
+from lumo.figma.core import (
+    FigmaApiError,
+    diff_against_audit as figma_diff_against_audit,
+    fetch_tokens as figma_fetch_tokens,
+)
 from lumo.parity.core import DesignSystemConfig, diff
 from lumo.source.core import (
     DEFAULT_RADIUS_SCALE_DP,
@@ -439,6 +444,115 @@ def lumo_audit_scan(
             }
             for obs in report.scale_observations
         ],
+    }
+
+
+# ============================================================================
+# Tool 8 — figma_diff
+# ============================================================================
+
+
+@server.tool()
+def lumo_figma_diff(
+    file_key: str,
+    audit_payload: dict[str, Any],
+    mode: str | None = None,
+    missing_threshold: int = 3,
+) -> dict[str, Any]:
+    """Diff a Figma file's COLOR + FLOAT variables against a code audit.
+
+    Compares Figma design tokens against the *measured* spacing / radius /
+    size scale and hardcoded colours that `lumo_audit_scan` already
+    produced. Three buckets in the result:
+
+      - **matched** — token value present in Figma and in code (with
+        per-token occurrence count from the audit).
+      - **unused_in_code** — Figma token never literal-used in code.
+        Note: a token may still be used via theme indirection
+        (`MaterialTheme.colorScheme.*`, `LocalDimensions.*`) without
+        appearing here — so treat the list as candidates for review,
+        not a hit-list for deletion.
+      - **missing_from_figma** — hex / numeric value used at least
+        `missing_threshold` times in code with no matching Figma token.
+        Candidates for promotion to the design system.
+
+    Matching is by VALUE, not name. Naming conventions drift across
+    Figma / Compose / SwiftUI, so the only stable join key is the
+    resolved hex or number. Token name appears in the report for human
+    reference, never as a match key.
+
+    Auth: requires `FIGMA_TOKEN` in the process environment. No way to
+    pass the token via this MCP call by design — keeps secrets out of
+    tool-call logs.
+
+    Args:
+        file_key: Figma file key (`abc123` from a Figma URL).
+        audit_payload: JSON payload produced by `lumo_audit_scan` or the
+            `lumo-audit scan --json` CLI.
+        mode: Variable-collection mode name (e.g. "Dark"). When None
+            (default), each collection's default mode is used.
+        missing_threshold: Minimum code occurrences before a value is
+            flagged as missing from Figma. Default 3.
+
+    Returns:
+        Dict with `file_key`, `mode_label`, `summary_counts` (matched /
+        unused_in_code / missing_from_figma), three lists for each
+        bucket, and `figma_token_counts` per type.
+    """
+    figma = figma_fetch_tokens(file_key, mode=mode)
+    report = figma_diff_against_audit(
+        figma,
+        audit_payload,
+        missing_threshold=missing_threshold,
+    )
+    return {
+        "file_key": report.file_key,
+        "mode_label": report.mode_label,
+        "summary_counts": dict(report.summary_counts),
+        "matched": [
+            {
+                "token": {
+                    "id": m.token.id,
+                    "name": m.token.name,
+                    "type": m.token.type,
+                    "collection": m.token.collection,
+                    "mode_name": m.token.mode_name,
+                    "value": m.token.value_canonical,
+                    "is_alias_resolved": m.token.is_alias_resolved,
+                },
+                "code_kind": m.code_kind,
+                "code_occurrences": m.code_occurrences,
+            }
+            for m in report.matched
+        ],
+        "unused_in_code": [
+            {
+                "token": {
+                    "id": u.token.id,
+                    "name": u.token.name,
+                    "type": u.token.type,
+                    "collection": u.token.collection,
+                    "mode_name": u.token.mode_name,
+                    "value": u.token.value_canonical,
+                    "is_alias_resolved": u.token.is_alias_resolved,
+                },
+            }
+            for u in report.unused_in_code
+        ],
+        "missing_from_figma": [
+            {
+                "value": m.value,
+                "code_kind": m.code_kind,
+                "code_occurrences": m.code_occurrences,
+            }
+            for m in report.missing_from_figma
+        ],
+        "figma_token_counts": {
+            "COLOR": len(figma.colors),
+            "FLOAT": len(figma.floats),
+            "STRING": len(figma.strings),
+            "BOOLEAN": len(figma.booleans),
+        },
     }
 
 

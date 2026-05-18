@@ -50,9 +50,10 @@ When running inside an MCP-aware client (Cursor, Continue, Aider, Goose,
 Zed, Codex, or Claude Code with MCP enabled), the same tools are
 also exposed as MCP functions: `lumo_wcag_check`, `lumo_wcag_fix`,
 `lumo_theory_check`, `lumo_parity_diff`, `lumo_source_check_compose`,
-`lumo_source_check_swiftui`, `lumo_audit_scan`. Prefer the MCP function
-over spawning a Bash subprocess when available — the structured response
-is already JSON and the user does not see noisy command output.
+`lumo_source_check_swiftui`, `lumo_audit_scan`, `lumo_figma_diff`.
+Prefer the MCP function over spawning a Bash subprocess when available
+— the structured response is already JSON and the user does not see
+noisy command output.
 
 ### `lumo-wcag` — WCAG contrast validator + OKLCH auto-correct
 
@@ -478,6 +479,117 @@ Off-scale values: `13.0` (⚠ above).
 
 Exit codes: `0` no findings, `1` findings present.
 
+### `lumo-figma` — diff Figma design tokens against the codebase
+
+When to invoke:
+
+- The user asks whether the code matches Figma ("are we using the
+  design system", "what's drifted", "what tokens are missing").
+- A design-system handoff happened in Figma and the user wants to see
+  which tokens already exist in code and which are still hardcoded.
+- After running `lumo-audit`, the user wants to validate the measured
+  scale against the canonical design tokens in Figma.
+
+What this tool does:
+
+- Fetches **variables** (the modern Figma token system, 2023+) for a
+  given file via `GET /v1/files/{key}/variables/local`. Resolves
+  aliases (variable → variable → concrete value), picks a mode per
+  collection (default or `--mode <name>`), canonicalises values:
+  - COLOR → `#RRGGBB` (alpha dropped; code-side `lumo-audit` doesn't
+    carry alpha either).
+  - FLOAT → bare float (matches `lumo-audit` scale literals).
+  - STRING / BOOLEAN are accepted but not part of the v1 diff.
+- Diffs against a `lumo-audit --json` payload. Three buckets:
+  - `matched` — token value present in Figma AND in code, with code
+    occurrence count.
+  - `unused_in_code` — token exists in Figma but no literal in code
+    matches its value. Note: theme indirection (`MaterialTheme.*`,
+    `LocalDimensions.*`, `Color("brandPrimary")`) is invisible to the
+    AST audit, so a token may still be used via the design system
+    layer — treat the list as **candidates for review**, never a
+    hit-list for deletion.
+  - `missing_from_figma` — value used in code ≥ `--missing-threshold`
+    times (default 3) with no Figma token. Strong candidate for
+    promotion to the design system.
+
+Honesty rules:
+
+- **Match by value, not by name.** Figma names (`spacing/lg`) and code
+  identifiers (`Dimens.lg.dp`, `Theme.spacing.large`) drift across
+  projects. The only stable join key is the resolved number / hex.
+  Names appear in the report for human reference, never as a match key.
+- **Alpha is dropped on colours.** Code-side colours don't carry it; if
+  we matched on alpha we'd produce false drift for opaque tokens that
+  read as `0xFFRRGGBB` in code vs `{r,g,b,a:1}` in Figma.
+- **Variables only in v1.** Styles (the older Figma token system) need
+  a node-tree walk and ship in a later phase. If the user's design
+  system is styles-based, the tool returns an empty fetch — flag this
+  explicitly and don't pretend the file is empty.
+
+What this tool **does not** do:
+
+- It does not generate code. No token export, no theme scaffolding —
+  Lumo reports drift; you decide how to refactor.
+- It does not modify the Figma file. Read-only API calls only.
+- It does not compare layout / frame geometry between Figma and code.
+  That's the snapshot-input piece in Phase 2.5.
+
+Auth:
+
+- Set `FIGMA_TOKEN` in the environment. Never pass tokens via CLI flags
+  — shell history. Generate a personal access token at
+  `https://www.figma.com/developers` and export it before running.
+
+Command:
+
+```bash
+# Against a saved audit JSON.
+lumo-audit scan --root . --json > audit.json
+lumo-figma diff --file-key abc123 --audit audit.json
+
+# Or all-in-one (scans the repo inline, faster iteration).
+lumo-figma diff --file-key abc123 --root .
+
+# Pick a Figma mode (e.g. Dark).
+lumo-figma diff --file-key abc123 --root . --mode Dark
+
+# Raise / lower the missing-from-figma threshold (default: 3 uses).
+lumo-figma diff --file-key abc123 --root . --missing-threshold 5
+
+# Pass the URL instead of extracting the file key yourself.
+lumo-figma diff --url "https://www.figma.com/design/abc123/My-File" --root .
+
+# Machine-readable for CI / chaining.
+lumo-figma diff --file-key abc123 --root . --json
+```
+
+Worked example — Figma has `spacing/lg=24`, code has 7 `padding(24.dp)`
+plus 5 `padding(13.dp)`:
+
+```bash
+$ lumo-figma diff --file-key abc123 --root .
+# Lumo ↔ Figma — file abc123 (mode: default)
+
+- Figma tokens fetched: 1 (0 COLOR, 1 FLOAT, …)
+- Matched in code: 1
+- Unused in code: 0
+- Used in code but missing from Figma: 1
+
+## Matched tokens
+| Token | Type | Value | Code kind | Code uses |
+|---|---|---|---|---|
+| `spacing/lg` | FLOAT | `24.0` | padding | 7 |
+
+## Missing from Figma
+| Value | Kind | Uses |
+|---|---|---|
+| `13.0` | padding | 5 |
+```
+
+Exit codes: `0` when nothing is missing from Figma, `1` when at least
+one value crosses the threshold, `2` on argument / API errors.
+
 ## Decision Tree
 
 | User request shape | Action |
@@ -493,6 +605,7 @@ Exit codes: `0` no findings, `1` findings present.
 | "Review this Compose file for design-system drift" / "are there hardcoded colours / off-scale paddings / undersized buttons in this `.kt`?" | `lumo-source check --file <path>`. Don't ask the user to translate the file into a layout JSON first — this tool reads source directly. |
 | "Review this SwiftUI file" / "audit this `.swift`" | `lumo-source check --file <path>` (language auto-detected by extension). Apple HIG min tap target = 44pt — Lumo uses that, not the Compose 48dp. |
 | "Audit the whole project" / "what is our actual spacing scale" / "where are the drift hotspots" | `lumo-audit scan --root <path>`. Pass `--config lumo.config.json` for project-specific scales / excludes. The measured-scale section answers de-facto scale questions that no per-file tool can. |
+| "Does the code match Figma" / "what tokens are missing from the design system" / "is `spacing/lg` actually used" | `lumo-figma diff --file-key <key> --root .` (after `export FIGMA_TOKEN=…`). Matches by value, not name — so a token with a different code name still counts as matched. Treat `unused_in_code` as candidates for review (theme indirection is invisible here), and `missing_from_figma` as promotion candidates. |
 
 ## Output Format Contract
 

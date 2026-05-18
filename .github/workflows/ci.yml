@@ -102,13 +102,14 @@ jobs:
           python -m venv /tmp/e2e-venv
           /tmp/e2e-venv/bin/pip install dist/*.whl
 
-      - name: All six console scripts exist
+      - name: All seven console scripts exist
         run: |
           test -x /tmp/e2e-venv/bin/lumo-wcag
           test -x /tmp/e2e-venv/bin/lumo-theory
           test -x /tmp/e2e-venv/bin/lumo-parity
           test -x /tmp/e2e-venv/bin/lumo-source
           test -x /tmp/e2e-venv/bin/lumo-audit
+          test -x /tmp/e2e-venv/bin/lumo-figma
           test -x /tmp/e2e-venv/bin/lumo-mcp
 
       - name: lumo-wcag check exits non-zero on a known-fail pair
@@ -179,6 +180,18 @@ jobs:
           echo "$out" | grep -q '`undersized_tap_target`: 2'
           echo "$out" | grep -q 'Measured scale'
           echo "$out" | grep -q 'Off-scale values:'
+
+      - name: lumo-figma reports a clear auth error when FIGMA_TOKEN is unset
+        run: |
+          # CI doesn't have a Figma token; running the CLI must produce
+          # a human-readable error and exit non-zero, not crash. This
+          # also confirms the binary is wired up and the args are parsed.
+          unset FIGMA_TOKEN
+          if /tmp/e2e-venv/bin/lumo-figma diff --file-key dummy --root examples; then
+            echo "expected non-zero exit, got 0" && exit 1
+          fi
+          out="$(/tmp/e2e-venv/bin/lumo-figma diff --file-key dummy --root examples 2>&1 || true)"
+          echo "$out" | grep -q 'FIGMA_TOKEN'
 
   installer:
     name: Node installer
