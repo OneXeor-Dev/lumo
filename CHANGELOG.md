@@ -5,6 +5,48 @@ All notable changes to Lumo are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and Lumo adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.7] — 2026-05-18
+
+### Added
+
+- **`lumo-audit`** — whole-repository design-system audit. Walks every
+  `.kt` / `.kts` / `.swift` file under `--root`, runs `lumo-source` on
+  each, and aggregates two views:
+  - **Drift hotspots.** Counts of findings by check, category,
+    severity, and language. Tells you *what* to prioritise refactoring.
+  - **Measured scale.** Frequency tables for every hardcoded padding /
+    radius / size literal. Compares the top values against the
+    configured scale to surface actual drift — strictly more useful
+    than "this one file violates a rule." Token references
+    (`MaterialTheme.spacing.md`, `Theme.spacing.md`,
+    `Color("brandPrimary")`) are intentionally invisible so the table
+    measures real literals, not theme usage.
+- New MCP tool `lumo_audit_scan` exposes the same API. The MCP server
+  now ships **7 tools total**.
+- `lumo.config.json` gains an `audit:` section (`spacing_scale`,
+  `radius_scale`, `exclude`, `top_n_values`). CLI flags override the
+  config-file values.
+- Hardcoded skip directories baked in: `.git`, `.gradle`, `build`,
+  `Pods`, `DerivedData`, `node_modules`, `dist`, `out`, `__pycache__`,
+  `.venv`, `venv`, `.idea`, `.pytest_cache`. Pass `--exclude <glob>`
+  for additional project-specific filters.
+- 17 new tests in `tests/test_audit.py` (positive + negative per check,
+  scale-bucketing, top-N cap, language-only-when-present aggregation).
+  Two new MCP wrapper tests. Suite: **131/131 pass, mypy strict clean**.
+- CI e2e gains `lumo-audit scan --root examples` smoke check verifying
+  the aggregate output mentions `undersized_tap_target: 2`, scale
+  observations, and the `Off-scale values:` line.
+
+### Notes
+
+- `.lumoignore` support is **deliberately deferred** — see the Backlog
+  section of `ROADMAP.md`. The hardcoded skip list plus CLI `--exclude`
+  globs cover the common case; we want real-user feedback before
+  introducing a new file format.
+- HTML report rendering is also deferred (markdown + JSON outputs are
+  enough for CI, and adding a templating dep would re-introduce supply-
+  chain surface that Socket would flag). Logged in ROADMAP as `audit_html`.
+
 ## [0.0.6] — 2026-05-17 (both PyPI + npm — version-sync release)
 
 ### Changed

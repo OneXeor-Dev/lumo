@@ -160,33 +160,34 @@ lumo/
    (`lumo-source check --file …`, language auto-detected by extension)
    and as two MCP tools (`lumo_source_check_compose`,
    `lumo_source_check_swiftui`).
-5. **`snapshot_input`** — read **measured** layouts from snapshot-testing
-   frameworks instead of asking the user to hand-build JSON.
-   - Verified: Paparazzi and `swift-snapshot-testing` **do not** emit
-     coordinate JSON out of the box — they render bitmaps. The Lumo
-     approach is to ship two small capture libraries
-     (`lumo-android-capture`, `lumo-ios-capture`) that a developer wires
-     into one line of their existing snapshot test. The capture library
-     walks the rendered view tree and writes Lumo-schema JSON next to
-     the bitmap.
-   - **Android target: Roborazzi first**, Paparazzi second. Roborazzi
-     runs under Robolectric so the view tree, theme tokens, and
-     coordinates resolve like on a real device. Paparazzi (Layoutlib)
-     fakes some of that, so its capture helper is bigger work and ships
-     later.
-   - Output: layout JSON with `source: "measured"` (the highest
-     confidence label) instead of `code-estimated` or
-     `description-estimated`.
-   - Existing `lumo-theory` and `lumo-parity` CLIs gain `--from <dir>`
-     to scoop every `*.json` from a snapshot-test build output.
-   - Full design in [docs/design/snapshot-input.md](./docs/design/snapshot-input.md)
-     — read that before opening a related PR.
-   - Goes **before** `codebase_audit` and `figma_sync` in build order.
-     `codebase_audit` becomes a *fallback* for users without snapshot
-     tests, not the primary measurement source.
+5. **`lumo-audit` — whole-repo aggregator** ✅ shipped.
+   Walks every `.kt` / `.swift` file under `--root`, runs `lumo-source`
+   per file, and produces two views: (a) drift hotspots — counts by
+   check / category / severity / language; (b) measured scale — top
+   frequencies of every hardcoded padding / radius / size literal,
+   partitioned on/off the configured scale. Reads its config from the
+   `audit:` section of `lumo.config.json`. Always skips a hardcoded set
+   of noisy dirs (`.git`, `build`, `node_modules`, `Pods`, etc.); extra
+   excludes via `--exclude` glob or config. JSON output via `--json`,
+   markdown summary via `--out file.md`. Exposed as the 7th MCP tool
+   (`lumo_audit_scan`).
+   - **Backlog** — `.lumoignore` support. A `.gitignore`-style file at
+     the repo root, for projects that want fine-grained exclude rules
+     versioned alongside the code. Postponed because (a) CLI `--exclude`
+     globs plus the hardcoded skip list cover the common case, (b) we
+     want to validate format demand against real users first, (c) the
+     audit doesn't depend on git, so adopting `.gitignore` itself would
+     be a hidden coupling. Land after Figma sync + snapshot capture so
+     the audit's role in the lifecycle is fully understood.
 6. **`figma_sync`** — Figma REST API → extract variables/styles → diff against code.
-7. **`codebase_audit`** — AST scan of Compose / SwiftUI / XML / UIKit → extract spacing scale, color frequency, typography usage → propose design system rules → user confirms → save to local store. Lands after `snapshot_input` so the audit can validate the AST estimates against measured values from snapshot tests.
+7. **`snapshot_input`** — read **measured** layouts from snapshot-testing
+   frameworks (Roborazzi + swift-snapshot-testing). Full design in
+   [docs/design/snapshot-input.md](./docs/design/snapshot-input.md).
 8. **`rules_search`** — hybrid BM25 + local embedding search over rules DB.
+9. **`audit_html`** — optional HTML report renderer for `lumo-audit`.
+   Postponed: would add a templating dep (jinja2 etc.) and Socket will
+   flag the new attack surface. The current markdown / JSON output is
+   enough for CI consumption; revisit after dogfood.
 
 ### Data
 
