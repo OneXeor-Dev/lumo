@@ -206,15 +206,18 @@ lumo/
      match by value, so naming convention drift doesn't block the
      diff. Add a `figma.mapping` config only when a real user case
      demonstrates name-aware matching is materially better.
-7. **`lumo-render` — AST layout evaluator** ⏳ next.
+7. **`lumo-render` — AST layout evaluator (Compose + SwiftUI)** ✅
+   shipped in v0.0.10.
    Walks the same tree-sitter AST `lumo-source` already produces, but
    instead of running drift checks it *evaluates* the layout: an
-   offset-stack interpreter for `Column` / `Row` / `Box` and the common
-   modifier transforms (`padding` / `size` / `width` / `height` /
-   `fillMaxWidth` / `wrapContent` / `offset` / `Spacer` / `weight`)
-   produces measured-like `(x, y, w, h)` for every element that can be
-   statically resolved. The output is a Lumo-schema layout JSON ready to
-   feed `lumo-theory check --from` and `lumo-parity diff --from`.
+   offset-stack interpreter for `Column` / `Row` / `Box` (Compose) and
+   `VStack` / `HStack` / `ZStack` (SwiftUI) plus the common modifier
+   transforms produces measured-like `(x, y, w, h)` for every element
+   that can be statically resolved. Both platforms share the same
+   evaluator core; only the parsing front-end and the per-platform
+   view / modifier tables differ. The output is a Lumo-schema layout
+   JSON ready to feed `lumo-theory check --from` and
+   `lumo-parity diff --from`.
 
    Honesty hierarchy upgrade — a new label slots in between the existing
    ones:

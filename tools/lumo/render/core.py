@@ -1,10 +1,16 @@
-"""AST layout evaluator for Jetpack Compose.
+"""AST layout evaluator for Jetpack Compose AND SwiftUI.
 
 Walks the same tree-sitter AST `lumo.source` uses for drift checks and
 produces a layout JSON with `(x, y, w, h)` for every statically-resolvable
 element. The output is the same Lumo schema `lumo-theory` / `lumo-parity`
 consume — but stamped `"source": "ast-resolved"` instead of `"measured"`
 or `"code-estimated"`.
+
+Both platforms share the same offset-stack evaluator and the same
+honesty rules; only the AST-parsing front-end and the per-platform
+container / view tables differ. Coordinates are unit-less floats — they
+mean dp on Android, pt on iOS, and the two are physically equal, so the
+downstream parity diff can compare them directly.
 
 Honesty rules (locked, identical spirit to `lumo.source`):
 
@@ -21,13 +27,13 @@ Honesty rules (locked, identical spirit to `lumo.source`):
     children to compute used space, pass 2 distributes the remaining
     free space across weighted children. Mirrors Compose's actual rule.
 
-Known composables (v1):
+Known composables — Compose (v1):
   - Containers: `Column`, `Row`, `Box`, `Card`, `Surface`
   - Atoms: `Text`, `Button`, `IconButton`, `Icon`, `Image`,
     `FloatingActionButton`, `Spacer`
   - Anything else: emitted as `ast-unresolved` with reason "unknown composable"
 
-Known modifiers (v1):
+Known modifiers — Compose (v1):
   - `padding(N.dp)`, `padding(horizontal=…, vertical=…)`,
     `padding(start=…, end=…, top=…, bottom=…)`
   - `size(N.dp)`, `width(N.dp)`, `height(N.dp)`
@@ -37,6 +43,29 @@ Known modifiers (v1):
   - `wrapContentSize()`, `wrapContentWidth()`, `wrapContentHeight()` — no-op for sizing
   - `testTag("id")` — captured as `Element.id`
   - Any other modifier — silently ignored (does not break layout math)
+
+Known views — SwiftUI (v1):
+  - Containers: `VStack`, `HStack`, `ZStack`, `Group`
+  - Atoms: `Text`, `Button`, `Image`, `Label`, `Spacer`, `Rectangle`,
+    `Circle`, `RoundedRectangle`, `Divider`, `Toggle`, `NavigationLink`,
+    `Link`
+  - Anything else: emitted as `ast-unresolved` with reason "unknown view"
+
+Known modifiers — SwiftUI (v1):
+  - `.padding()`, `.padding(N)`, `.padding(.horizontal, N)`,
+    `.padding(.vertical, N)`, `.padding(.leading|.trailing|.top|.bottom, N)`,
+    `.padding(.all, N)`, `.padding(EdgeInsets(top:..., leading:..., …))`
+  - `.frame(width:height:)`, `.frame(minWidth:..., maxWidth:..., …)`
+    (only literal values; `.infinity` means "fill parent on that axis")
+  - `.offset(x:y:)`
+  - `.accessibilityIdentifier("id")` — captured as `Element.id`
+  - Any other modifier — silently ignored (does not break layout math)
+
+Note on `Spacer` in SwiftUI: in an HStack / VStack with no size pin,
+`Spacer()` is a flex element. We treat it as `weight(1f)` of the
+remaining axis extent when fixed-size siblings are present — same
+two-pass rule as Compose. Pure stacks of all `Spacer`s with no parent
+extent emit `ast-unresolved`.
 """
 
 from __future__ import annotations
@@ -48,6 +77,7 @@ from pathlib import Path
 from typing import Literal
 
 import tree_sitter_kotlin
+import tree_sitter_swift
 from tree_sitter import Language, Node, Parser
 
 # ============================================================================
@@ -98,6 +128,43 @@ ALL_KNOWN_COMPOSABLES = (
 )
 
 
+# ---------------- SwiftUI ----------------
+
+# Container views — children stack along an axis (or overlay for ZStack).
+VSTACK_LIKE = frozenset({"VStack"})
+HSTACK_LIKE = frozenset({"HStack"})
+ZSTACK_LIKE = frozenset({"ZStack", "Group"})
+
+# Atom views and their roles. Defaults match Compose where they overlap
+# so cross-platform parity diffs stay meaningful: a 44pt iOS button and
+# a 48dp Android button are both "primary_action" and the diff surfaces
+# the explicit platform whitelist instead of false-positive height drift.
+ATOM_SWIFTUI: dict[str, str] = {
+    "Text": "text",
+    "Button": "primary_action",
+    "Image": "image",
+    "Label": "text",
+    "Spacer": "spacer",
+    "Rectangle": "shape",
+    "Circle": "shape",
+    "RoundedRectangle": "shape",
+    "Divider": "divider",
+    "Toggle": "toggle",
+    "NavigationLink": "nav_item",
+    "Link": "nav_item",
+}
+
+# Apple HIG defaults for SwiftUI atoms when modifiers don't pin size.
+DEFAULT_BUTTON_HEIGHT_PT = 44.0  # HIG minimum tap target
+DEFAULT_TEXT_HEIGHT_PT = 20.0
+DEFAULT_ICON_SIZE_PT = 24.0
+DEFAULT_DIVIDER_HEIGHT_PT = 1.0
+
+ALL_KNOWN_SWIFTUI = (
+    VSTACK_LIKE | HSTACK_LIKE | ZSTACK_LIKE | frozenset(ATOM_SWIFTUI.keys())
+)
+
+
 # ============================================================================
 # Element + report data model
 # ============================================================================
@@ -144,7 +211,7 @@ class RenderReport:
 
     screen_width: float
     screen_height: float
-    unit: Literal["dp"]
+    unit: Literal["dp", "pt"]
     elements: tuple[Element, ...]
 
     @property
@@ -174,6 +241,7 @@ class RenderReport:
 # ============================================================================
 
 _KOTLIN_LANGUAGE: Language | None = None
+_SWIFT_LANGUAGE: Language | None = None
 
 
 def _kotlin_parser() -> Parser:
@@ -181,6 +249,13 @@ def _kotlin_parser() -> Parser:
     if _KOTLIN_LANGUAGE is None:
         _KOTLIN_LANGUAGE = Language(tree_sitter_kotlin.language())
     return Parser(_KOTLIN_LANGUAGE)
+
+
+def _swift_parser() -> Parser:
+    global _SWIFT_LANGUAGE
+    if _SWIFT_LANGUAGE is None:
+        _SWIFT_LANGUAGE = Language(tree_sitter_swift.language())
+    return Parser(_SWIFT_LANGUAGE)
 
 
 def _node_text(node: Node, src: bytes) -> str:
@@ -968,6 +1043,603 @@ def _measure(
 
 
 # ============================================================================
+# SwiftUI front-end
+# ============================================================================
+#
+# Same evaluator core as Compose — only the AST-parsing front-end and the
+# per-platform view / modifier tables differ. Each SwiftUI call is parsed
+# into the same `_CallSpec` shape, then dispatched through `_emit_swiftui`
+# (which mirrors `_emit` but with HIG-based defaults and SwiftUI-specific
+# atom sizing rules).
+
+
+def _swift_body_statements(root: Node, src: bytes, target: str | None) -> Node | None:
+    """Locate the `var body: some View { … }` block to render.
+
+    SwiftUI views are structs / classes whose `body` computed property
+    returns `some View`. We look for any class_declaration / protocol
+    that contains a `property_declaration` named `body` with a
+    `computed_property`, then return its `statements` child.
+
+    If `target` is given (the type name, e.g. "LoginView"), prefer that
+    declaration. Otherwise pick the first matching one.
+    """
+    candidates: list[tuple[str, Node]] = []
+    for node in _walk(root):
+        if node.type != "class_declaration":
+            continue
+        # Owner type name (struct/class name).
+        type_name = None
+        body_stmts = None
+        for ch in node.children:
+            if ch.type == "type_identifier" and type_name is None:
+                type_name = _node_text(ch, src).strip()
+            if ch.type == "class_body":
+                # Find property_declaration named "body" with computed_property
+                for pd in ch.children:
+                    if pd.type != "property_declaration":
+                        continue
+                    name_seen = None
+                    comp = None
+                    for sub in pd.children:
+                        if sub.type == "pattern":
+                            for s2 in sub.children:
+                                if s2.type == "simple_identifier":
+                                    name_seen = _node_text(s2, src).strip()
+                        if sub.type == "computed_property":
+                            comp = sub
+                    if name_seen == "body" and comp is not None:
+                        for c2 in comp.children:
+                            if c2.type == "statements":
+                                body_stmts = c2
+                                break
+        if type_name and body_stmts:
+            candidates.append((type_name, body_stmts))
+    if not candidates:
+        return None
+    if target:
+        for n, b in candidates:
+            if n == target:
+                return b
+    return candidates[0][1]
+
+
+def _swift_top_level_calls(stmts: Node) -> list[Node]:
+    """SwiftUI body is a single `some View` expression — usually one call.
+
+    But `body` can be a tuple-like multi-statement block (using
+    `@ViewBuilder` implicitly), so return every top-level call_expression.
+    """
+    return [c for c in stmts.children if c.type == "call_expression"]
+
+
+def _swift_chain_split(call: Node, src: bytes) -> tuple[Node, list[Node]]:
+    """Split a SwiftUI call expression into (root view call, modifier calls).
+
+    `Button(...) { … }.frame(...).padding(...)` parses as nested
+    `call_expression` / `navigation_expression` chains. We unwrap the
+    outermost wrapper until we find the bare view (the inner call whose
+    callee is a `simple_identifier`, not a `navigation_expression`), and
+    return every wrapping modifier call along the way in outer-to-inner
+    order. The caller applies them in REVERSE so the innermost modifier
+    is applied first (matching SwiftUI's left-to-right evaluation).
+    """
+    modifiers: list[Node] = []
+    cur = call
+    while cur.children:
+        head = cur.children[0]
+        if head.type == "navigation_expression":
+            # This call_expression IS a modifier call. Record it.
+            modifiers.append(cur)
+            # Drill into the navigation_expression to find the receiver.
+            recv = None
+            for ch in head.children:
+                if ch.type == "call_expression":
+                    recv = ch
+                    break
+            if recv is None:
+                # `someProperty.foo()` — no receiver call. Treat current
+                # as the root (unknown view).
+                return cur, modifiers
+            cur = recv
+        else:
+            # `cur` is `Foo(...)` — the root view call.
+            return cur, modifiers
+    # Empty/degenerate call_expression — return as-is, no modifiers.
+    return cur, modifiers
+
+
+def _swift_call_callee_name(call: Node, src: bytes) -> str | None:
+    """Return the SwiftUI view name (e.g. "VStack", "Button")."""
+    if not call.children:
+        return None
+    head = call.children[0]
+    if head.type == "simple_identifier":
+        return _node_text(head, src).strip()
+    return None
+
+
+def _swift_call_trailing_lambda(call: Node, src: bytes) -> Node | None:
+    """Return the trailing closure body of a SwiftUI call, if any."""
+    for ch in call.children:
+        if ch.type == "call_suffix":
+            for cc in ch.children:
+                if cc.type == "lambda_literal":
+                    return cc
+        if ch.type == "lambda_literal":
+            return ch
+    return None
+
+
+def _swift_modifier_name(mod_call: Node, src: bytes) -> str:
+    """The `.foo` part of a `receiver.foo(args)` modifier call."""
+    if not mod_call.children:
+        return ""
+    nav = mod_call.children[0]
+    if nav.type != "navigation_expression":
+        return ""
+    for ch in nav.children:
+        if ch.type == "navigation_suffix":
+            for cc in ch.children:
+                if cc.type == "simple_identifier":
+                    return _node_text(cc, src).strip()
+    return ""
+
+
+def _swift_modifier_args_node(mod_call: Node) -> Node | None:
+    """Return the value_arguments node of a SwiftUI modifier call."""
+    for ch in mod_call.children:
+        if ch.type == "call_suffix":
+            for cc in ch.children:
+                if cc.type == "value_arguments":
+                    return cc
+    return None
+
+
+def _swift_value_argument_label(arg: Node, src: bytes) -> str | None:
+    for c in arg.children:
+        if c.type == "value_argument_label":
+            return _node_text(c, src).strip()
+    return None
+
+
+def _swift_value_argument_value_text(arg: Node, src: bytes) -> str | None:
+    """Text of the value part of `label: value` (or the whole arg if no label)."""
+    seen_colon = False
+    has_label = any(c.type == "value_argument_label" for c in arg.children)
+    if not has_label:
+        for c in arg.children:
+            if c.is_named:
+                return _node_text(c, src).strip()
+        return None
+    for c in arg.children:
+        if c.type == ":":
+            seen_colon = True
+            continue
+        if seen_colon and c.is_named:
+            return _node_text(c, src).strip()
+    return None
+
+
+def _parse_swiftui_pt(text: str | None) -> float | None:
+    """Parse a SwiftUI numeric literal (bare pt — no unit suffix).
+
+    `16` → 16.0, `16.5` → 16.5, `Theme.spacing.md` → None.
+    `.infinity` is handled separately (a sentinel for fillMax).
+    """
+    if text is None:
+        return None
+    t = text.strip().rstrip("fF")
+    if _BARE_NUM_RE.match(t):
+        try:
+            return float(t)
+        except ValueError:
+            return None
+    return None
+
+
+def _apply_swiftui_modifier(name: str, args_node: Node | None, src: bytes, mods: Modifiers) -> None:
+    """Mutate `mods` based on one SwiftUI `.modifier(args)` call.
+
+    Mirrors `_apply_modifier` for Compose but with the SwiftUI surface:
+    bare pt numerics, edge enums (`.horizontal`, `.top`, …), and the
+    `.frame(maxWidth: .infinity)` idiom for fill-max behaviour.
+    """
+    if args_node is None:
+        args_node_children: list[Node] = []
+    else:
+        args_node_children = [c for c in args_node.children if c.type == "value_argument"]
+
+    def _is_infinity(text: str | None) -> bool:
+        return text is not None and text.strip() == ".infinity"
+
+    if name == "padding":
+        # Five shapes:
+        #   .padding()                — system default 16pt (skip; ambiguous)
+        #   .padding(N)               — all sides, one unlabelled arg
+        #   .padding(.horizontal, N)  — edge then value
+        #   .padding(.all, N)         — same as N
+        #   .padding(.leading, N) / .trailing / .top / .bottom
+        if not args_node_children:
+            return  # bare .padding() — no-op (system default is locale-dependent)
+        # Single arg form: either a number, or an EdgeInsets expression.
+        if len(args_node_children) == 1:
+            txt = _swift_value_argument_value_text(args_node_children[0], src)
+            v = _parse_swiftui_pt(txt)
+            if v is None:
+                # EdgeInsets / token / variable — skip honestly.
+                mods.unresolved_reasons.append(f"padding({txt}) is not a literal")
+                return
+            mods.pad_start = mods.pad_end = mods.pad_top = mods.pad_bottom = v
+            return
+        # Two-arg form: first is edge enum, second is value.
+        if len(args_node_children) == 2:
+            edge_txt = _swift_value_argument_value_text(args_node_children[0], src)
+            val_txt = _swift_value_argument_value_text(args_node_children[1], src)
+            v = _parse_swiftui_pt(val_txt)
+            if v is None:
+                mods.unresolved_reasons.append(f"padding(..., {val_txt}) is not a literal")
+                return
+            edge = (edge_txt or "").strip()
+            if edge in (".horizontal",):
+                mods.pad_start = mods.pad_end = v
+            elif edge in (".vertical",):
+                mods.pad_top = mods.pad_bottom = v
+            elif edge in (".leading", ".left"):
+                mods.pad_start = v
+            elif edge in (".trailing", ".right"):
+                mods.pad_end = v
+            elif edge in (".top",):
+                mods.pad_top = v
+            elif edge in (".bottom",):
+                mods.pad_bottom = v
+            elif edge in (".all",):
+                mods.pad_start = mods.pad_end = mods.pad_top = mods.pad_bottom = v
+            else:
+                mods.unresolved_reasons.append(f"padding({edge}, …) — unknown edge")
+            return
+        return
+
+    if name == "frame":
+        # `.frame(width: N, height: N)` is the most common shape. Also
+        # support maxWidth: .infinity / maxHeight: .infinity as fill markers.
+        for a in args_node_children:
+            label = _swift_value_argument_label(a, src)
+            val_text = _swift_value_argument_value_text(a, src)
+            if label is None:
+                continue
+            if label == "width":
+                v = _parse_swiftui_pt(val_text)
+                if v is None:
+                    if _is_infinity(val_text):
+                        mods.fill_max_width = True
+                    else:
+                        mods.unresolved_reasons.append(f"frame(width: {val_text}) is not a literal")
+                else:
+                    mods.width = v
+            elif label == "height":
+                v = _parse_swiftui_pt(val_text)
+                if v is None:
+                    if _is_infinity(val_text):
+                        mods.fill_max_height = True
+                    else:
+                        mods.unresolved_reasons.append(f"frame(height: {val_text}) is not a literal")
+                else:
+                    mods.height = v
+            elif label in ("maxWidth",):
+                if _is_infinity(val_text):
+                    mods.fill_max_width = True
+                else:
+                    v = _parse_swiftui_pt(val_text)
+                    if v is not None:
+                        mods.width = v
+            elif label in ("maxHeight",):
+                if _is_infinity(val_text):
+                    mods.fill_max_height = True
+                else:
+                    v = _parse_swiftui_pt(val_text)
+                    if v is not None:
+                        mods.height = v
+            # minWidth/minHeight are intentionally ignored in v1 — they
+            # only matter when paired with a max, and we already handle
+            # that case via maxWidth.
+        return
+
+    if name == "offset":
+        for a in args_node_children:
+            label = _swift_value_argument_label(a, src)
+            val_text = _swift_value_argument_value_text(a, src)
+            v = _parse_swiftui_pt(val_text)
+            if v is None:
+                mods.unresolved_reasons.append(f"offset({label}: {val_text}) is not a literal")
+                return
+            if label == "x":
+                mods.offset_x = v
+            elif label == "y":
+                mods.offset_y = v
+        return
+
+    if name in ("accessibilityIdentifier", "tag"):
+        if args_node_children:
+            txt = _swift_value_argument_value_text(args_node_children[0], src) or ""
+            m = _STRING_RE.search(txt)
+            if m:
+                mods.test_tag = m.group(1)
+        return
+
+    # Other modifiers (background, foregroundColor, font, …) don't change
+    # layout math. Silently ignore.
+
+
+@dataclass
+class _SwiftSpec:
+    """Pre-parsed SwiftUI view info — analogous to Compose's _CallSpec."""
+
+    name: str
+    role: str | None
+    mods: Modifiers
+    lambda_body: Node | None
+    call_node: Node
+    is_spacer_flex: bool = False  # Spacer() with no .frame is axis-flex
+
+
+def _parse_swiftui_call(call: Node, src: bytes) -> _SwiftSpec | None:
+    """Parse a SwiftUI call_expression: root view + post-modifiers."""
+    root, modifier_calls = _swift_chain_split(call, src)
+    name = _swift_call_callee_name(root, src)
+    if name is None:
+        return None
+    role = ATOM_SWIFTUI.get(name)
+    mods = Modifiers()
+    # Apply modifiers innermost-first. `_swift_chain_split` returns them
+    # outer-to-inner, so reverse.
+    for mc in reversed(modifier_calls):
+        m_name = _swift_modifier_name(mc, src)
+        args_node = _swift_modifier_args_node(mc)
+        _apply_swiftui_modifier(m_name, args_node, src, mods)
+    # Spacer flex detection: a bare `Spacer()` with no .frame becomes
+    # an axis-flex element in HStack/VStack.
+    is_spacer_flex = name == "Spacer" and mods.width is None and mods.height is None
+    return _SwiftSpec(
+        name=name,
+        role=role,
+        mods=mods,
+        lambda_body=_swift_call_trailing_lambda(root, src),
+        call_node=call,
+        is_spacer_flex=is_spacer_flex,
+    )
+
+
+def _emit_swift(
+    spec: _SwiftSpec,
+    src: bytes,
+    ctx: Ctx,
+    id_counter: dict[str, int],
+    out: list[Element],
+) -> tuple[float, float]:
+    """Dispatch + emit a single SwiftUI view. Returns its used (w, h)."""
+    if spec.name in VSTACK_LIKE:
+        return _render_swift_axis(spec, src, ctx, "column", id_counter, out)
+    if spec.name in HSTACK_LIKE:
+        return _render_swift_axis(spec, src, ctx, "row", id_counter, out)
+    if spec.name in ZSTACK_LIKE:
+        return _render_swift_overlay(spec, src, ctx, id_counter, out)
+
+    # Atoms
+    if spec.role is not None:
+        if spec.role == "spacer":
+            # Bare Spacer is axis-flex (handled by parent stack). If the
+            # parent stack didn't honour the flex (we're at the root, or
+            # the parent isn't a stack), fall back to zero size.
+            w = spec.mods.width or 0.0
+            h = spec.mods.height or 0.0
+            if spec.mods.fill_max_width:
+                w = ctx.available_w
+            if spec.mods.fill_max_height:
+                h = ctx.available_h
+            return w, h
+        w, h = _swift_atom_default_size(spec.role, spec.mods, ctx)
+        eid = spec.mods.test_tag or _next_auto_id(spec.role, id_counter)
+        all_reasons = list(ctx.tainted_reasons) + list(spec.mods.unresolved_reasons)
+        if all_reasons:
+            out.append(Element(
+                id=eid, role=spec.role,
+                x=None, y=None, w=None, h=None,
+                source="ast-unresolved",
+                reason="; ".join(all_reasons),
+            ))
+            return 0.0, 0.0
+        out.append(Element(
+            id=eid, role=spec.role,
+            x=ctx.origin_x + spec.mods.offset_x,
+            y=ctx.origin_y + spec.mods.offset_y,
+            w=w, h=h,
+            source="ast-resolved",
+        ))
+        return w, h
+
+    # Unknown view
+    eid = spec.mods.test_tag or _next_auto_id("unknown", id_counter)
+    reasons = [f"unknown view: {spec.name}"] + list(ctx.tainted_reasons)
+    out.append(Element(
+        id=eid, role=spec.name,
+        x=None, y=None, w=None, h=None,
+        source="ast-unresolved",
+        reason="; ".join(reasons),
+    ))
+    return 0.0, 0.0
+
+
+def _swift_atom_default_size(role: str, mods: Modifiers, ctx: Ctx) -> tuple[float, float]:
+    """Default size for a SwiftUI atom when modifiers don't pin w/h."""
+    w = mods.width
+    h = mods.height
+    if mods.fill_max_width:
+        w = ctx.available_w
+    if mods.fill_max_height:
+        h = ctx.available_h
+    if w is None:
+        if role == "image":
+            w = DEFAULT_ICON_SIZE_PT
+        elif role in ("shape", "divider"):
+            w = ctx.available_w  # shapes fill by default
+        else:
+            w = 0.0
+    if h is None:
+        if role == "image":
+            h = DEFAULT_ICON_SIZE_PT
+        elif role == "text":
+            h = DEFAULT_TEXT_HEIGHT_PT
+        elif role == "primary_action":
+            h = DEFAULT_BUTTON_HEIGHT_PT
+        elif role == "nav_item":
+            h = DEFAULT_BUTTON_HEIGHT_PT
+        elif role == "toggle":
+            h = DEFAULT_BUTTON_HEIGHT_PT
+        elif role == "divider":
+            h = DEFAULT_DIVIDER_HEIGHT_PT
+        elif role == "shape":
+            h = ctx.available_h
+        else:
+            h = 0.0
+    return float(w), float(h)
+
+
+def _render_swift_axis(
+    spec: _SwiftSpec,
+    src: bytes,
+    ctx: Ctx,
+    axis: Literal["column", "row"],
+    id_counter: dict[str, int],
+    out: list[Element],
+) -> tuple[float, float]:
+    """VStack / HStack — stack children with Spacer-as-flex semantics."""
+    own_w = ctx.available_w if spec.mods.fill_max_width else spec.mods.width
+    own_h = ctx.available_h if spec.mods.fill_max_height else spec.mods.height
+    if own_w is None:
+        own_w = ctx.available_w
+    if own_h is None:
+        own_h = ctx.available_h
+    tainted = ctx.tainted_reasons + tuple(spec.mods.unresolved_reasons)
+    inner = Ctx(
+        origin_x=ctx.origin_x + spec.mods.pad_start,
+        origin_y=ctx.origin_y + spec.mods.pad_top,
+        available_w=max(0.0, own_w - spec.mods.pad_start - spec.mods.pad_end),
+        available_h=max(0.0, own_h - spec.mods.pad_top - spec.mods.pad_bottom),
+        tainted_reasons=tainted,
+    )
+
+    children: list[_SwiftSpec] = []
+    if spec.lambda_body is not None:
+        for c in spec.lambda_body.children:
+            if c.type == "statements":
+                for sc in c.children:
+                    if sc.type == "call_expression":
+                        cs = _parse_swiftui_call(sc, src)
+                        if cs is not None:
+                            children.append(cs)
+                break
+            if c.type == "call_expression":
+                cs = _parse_swiftui_call(c, src)
+                if cs is not None:
+                    children.append(cs)
+
+    # PASS 1 — measure fixed children, count Spacer-flex children.
+    used_along = 0.0
+    flex_count = 0
+    for child in children:
+        if child.is_spacer_flex:
+            flex_count += 1
+            continue
+        probe: list[Element] = []
+        w, h = _emit_swift(child, src, inner, dict(id_counter), probe)
+        used_along += h if axis == "column" else w
+
+    extent_along = inner.available_h if axis == "column" else inner.available_w
+    free = max(0.0, extent_along - used_along)
+    per_spacer = (free / flex_count) if flex_count > 0 else 0.0
+
+    # PASS 2 — emit children in order, allocating Spacer the free share.
+    cursor_x, cursor_y = inner.origin_x, inner.origin_y
+    for child in children:
+        if child.is_spacer_flex:
+            if flex_count == 0:
+                continue
+            if axis == "column":
+                cursor_y += per_spacer
+            else:
+                cursor_x += per_spacer
+            continue
+        child_ctx = Ctx(
+            origin_x=cursor_x,
+            origin_y=cursor_y,
+            available_w=inner.available_w if axis == "column" else inner.available_w - (cursor_x - inner.origin_x),
+            available_h=inner.available_h if axis == "row" else inner.available_h - (cursor_y - inner.origin_y),
+            tainted_reasons=inner.tainted_reasons,
+        )
+        w, h = _emit_swift(child, src, child_ctx, id_counter, out)
+        if axis == "column":
+            cursor_y += h
+        else:
+            cursor_x += w
+
+    used_w = inner.available_w if axis == "column" else (cursor_x - inner.origin_x)
+    used_h = (cursor_y - inner.origin_y) if axis == "column" else inner.available_h
+    return (
+        used_w + spec.mods.pad_start + spec.mods.pad_end,
+        used_h + spec.mods.pad_top + spec.mods.pad_bottom,
+    )
+
+
+def _render_swift_overlay(
+    spec: _SwiftSpec,
+    src: bytes,
+    ctx: Ctx,
+    id_counter: dict[str, int],
+    out: list[Element],
+) -> tuple[float, float]:
+    """ZStack / Group — children overlay at the inner origin."""
+    own_w = ctx.available_w if spec.mods.fill_max_width else spec.mods.width
+    own_h = ctx.available_h if spec.mods.fill_max_height else spec.mods.height
+    if own_w is None:
+        own_w = ctx.available_w
+    if own_h is None:
+        own_h = ctx.available_h
+    tainted = ctx.tainted_reasons + tuple(spec.mods.unresolved_reasons)
+    inner = Ctx(
+        origin_x=ctx.origin_x + spec.mods.pad_start,
+        origin_y=ctx.origin_y + spec.mods.pad_top,
+        available_w=max(0.0, own_w - spec.mods.pad_start - spec.mods.pad_end),
+        available_h=max(0.0, own_h - spec.mods.pad_top - spec.mods.pad_bottom),
+        tainted_reasons=tainted,
+    )
+    if spec.lambda_body is None:
+        return spec.mods.pad_start + spec.mods.pad_end, spec.mods.pad_top + spec.mods.pad_bottom
+
+    max_w, max_h = 0.0, 0.0
+    children_calls: list[Node] = []
+    for c in spec.lambda_body.children:
+        if c.type == "statements":
+            for sc in c.children:
+                if sc.type == "call_expression":
+                    children_calls.append(sc)
+            break
+        if c.type == "call_expression":
+            children_calls.append(c)
+    for ch_call in children_calls:
+        cs = _parse_swiftui_call(ch_call, src)
+        if cs is None:
+            continue
+        w, h = _emit_swift(cs, src, inner, id_counter, out)
+        max_w = max(max_w, w)
+        max_h = max(max_h, h)
+    return (
+        max_w + spec.mods.pad_start + spec.mods.pad_end,
+        max_h + spec.mods.pad_top + spec.mods.pad_bottom,
+    )
+
+
+# ============================================================================
 # Public API
 # ============================================================================
 
@@ -1030,6 +1702,69 @@ def render_compose_file(
     )
 
 
+def render_swiftui(
+    source: str,
+    *,
+    target: str | None = None,
+    screen_width: float = DEFAULT_SCREEN_WIDTH_DP,
+    screen_height: float = DEFAULT_SCREEN_HEIGHT_DP,
+) -> RenderReport:
+    """Render a SwiftUI source string to a layout report.
+
+    `target` — optional name of the SwiftUI View struct to render
+    (e.g. "LoginView"). If None, the first View in the file is used.
+
+    `screen_width` / `screen_height` — the root container size, in pt.
+    `.frame(maxWidth: .infinity)` resolves against these.
+
+    Output schema is identical to `render_compose` — coordinates are
+    unit-less floats. We label the unit as `"pt"` so downstream parity
+    tools can still tell the platforms apart, but pt and dp are
+    physically equal so direct comparison is valid.
+    """
+    src = source.encode("utf-8")
+    tree = _swift_parser().parse(src)
+    stmts = _swift_body_statements(tree.root_node, src, target)
+    elements: list[Element] = []
+    id_counter: dict[str, int] = {}
+    if stmts is None:
+        return RenderReport(
+            screen_width=screen_width,
+            screen_height=screen_height,
+            unit="pt",
+            elements=(),
+        )
+    ctx = Ctx(origin_x=0.0, origin_y=0.0, available_w=screen_width, available_h=screen_height)
+    for call in _swift_top_level_calls(stmts):
+        spec = _parse_swiftui_call(call, src)
+        if spec is None:
+            continue
+        _emit_swift(spec, src, ctx, id_counter, elements)
+    return RenderReport(
+        screen_width=screen_width,
+        screen_height=screen_height,
+        unit="pt",
+        elements=tuple(elements),
+    )
+
+
+def render_swiftui_file(
+    file_path: str | Path,
+    *,
+    target: str | None = None,
+    screen_width: float = DEFAULT_SCREEN_WIDTH_DP,
+    screen_height: float = DEFAULT_SCREEN_HEIGHT_DP,
+) -> RenderReport:
+    """Convenience: read a .swift file from disk and render it."""
+    p = Path(file_path)
+    return render_swiftui(
+        p.read_text(encoding="utf-8"),
+        target=target,
+        screen_width=screen_width,
+        screen_height=screen_height,
+    )
+
+
 __all__ = [
     "DEFAULT_SCREEN_HEIGHT_DP",
     "DEFAULT_SCREEN_WIDTH_DP",
@@ -1037,4 +1772,6 @@ __all__ = [
     "RenderReport",
     "render_compose",
     "render_compose_file",
+    "render_swiftui",
+    "render_swiftui_file",
 ]

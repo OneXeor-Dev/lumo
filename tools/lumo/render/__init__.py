@@ -1,8 +1,10 @@
-"""AST layout evaluator for Jetpack Compose.
+"""AST layout evaluator for Jetpack Compose AND SwiftUI.
 
 Public API:
     render_compose(source, ...) -> RenderReport
     render_compose_file(path, ...) -> RenderReport
+    render_swiftui(source, ...) -> RenderReport
+    render_swiftui_file(path, ...) -> RenderReport
 
 Output is the same Lumo layout JSON schema `lumo-theory` / `lumo-parity`
 consume, with per-element `source` set to `ast-resolved` or
@@ -17,6 +19,8 @@ from lumo.render.core import (
     RenderReport,
     render_compose,
     render_compose_file,
+    render_swiftui,
+    render_swiftui_file,
 )
 
 __all__ = [
@@ -26,4 +30,6 @@ __all__ = [
     "RenderReport",
     "render_compose",
     "render_compose_file",
+    "render_swiftui",
+    "render_swiftui_file",
 ]

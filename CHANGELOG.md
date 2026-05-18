@@ -25,49 +25,79 @@ measured > ast-resolved > code-estimated > description-estimated
 
 ### Added
 
-- **`lumo-render` — AST layout evaluator for Jetpack Compose.**
+- **`lumo-render` — AST layout evaluator for Compose AND SwiftUI.**
   Walks the same tree-sitter AST `lumo-source` already uses, but instead
   of running drift checks it *evaluates* the layout: an offset-stack
-  interpreter for `Column` / `Row` / `Box` / `Card` / `Surface` and the
-  common modifier transforms (`padding(...)` in every form,
-  `size` / `width` / `height`, `fillMaxWidth` / `fillMaxHeight` /
-  `fillMaxSize`, `offset(x, y)`, `weight(N)`, `wrapContentSize`,
-  `testTag`) produces `(x, y, w, h)` for every element that can be
-  derived statically. Atoms supported in v1: `Text`, `Button` (and
-  outlined / text / elevated / tonal variants), `IconButton` (and
-  filled / tonal / outlined variants), `Icon`, `Image`,
-  `FloatingActionButton` (and small / large / extended), `Spacer`.
+  interpreter produces `(x, y, w, h)` for every element that can be
+  derived statically. Both platforms share the same evaluator core; only
+  the parsing front-end and the per-platform view / modifier tables
+  differ. Output is the same Lumo layout JSON `lumo-theory` and
+  `lumo-parity` already consume.
 
-  Output is the same Lumo layout JSON `lumo-theory` and `lumo-parity`
-  already consume. Each element carries `source: "ast-resolved"` or
-  `"ast-unresolved"` with a `reason` field — we never invent
-  coordinates we cannot derive.
+  **Compose (`render_compose`):**
+    - Containers: `Column`, `Row`, `Box`, `Card`, `Surface`.
+    - Atoms: `Text`, `Button` (and outlined / text / elevated / tonal
+      variants), `IconButton` (and filled / tonal / outlined variants),
+      `Icon`, `Image`, `FloatingActionButton` (and small / large /
+      extended), `Spacer`.
+    - Modifiers: `padding(N.dp)` in every form (uniform / named
+      horizontal+vertical / individual sides), `size` / `width` /
+      `height`, `fillMaxWidth` / `fillMaxHeight` / `fillMaxSize`,
+      `offset(x, y)`, `weight(N)` (two-pass), `wrapContentSize`,
+      `testTag("id")`.
 
-  Honesty rules (locked):
+  **SwiftUI (`render_swiftui`):**
+    - Containers: `VStack`, `HStack`, `ZStack`, `Group`.
+    - Atoms: `Text`, `Button`, `Image`, `Label`, `Spacer`, `Rectangle`,
+      `Circle`, `RoundedRectangle`, `Divider`, `Toggle`,
+      `NavigationLink`, `Link`.
+    - Modifiers: `.padding()` in every form (no-arg / single value /
+      edge + value covering `.horizontal` / `.vertical` / `.leading` /
+      `.trailing` / `.top` / `.bottom` / `.all`), `.frame(width:height:)`,
+      `.frame(maxWidth: .infinity)` as fill-max marker,
+      `.offset(x:y:)`, `.accessibilityIdentifier("id")`.
+    - `Spacer()` with no `.frame` acts as axis-flex inside an HStack /
+      VStack — same two-pass allocation as Compose's `weight(N)`.
+    - Apple HIG defaults baked in: 44 pt minimum tap target for
+      `Button` / `NavigationLink` / `Toggle`, 24 pt for `Image`.
+
+  **Cross-platform parity** — the SwiftUI evaluator emits the same
+  schema as Compose, so a `parity_diff` can consume both directly. The
+  test suite includes a sanity case proving the same logical screen
+  expressed in Compose and SwiftUI yields matching topology and
+  coordinates (the only intentional difference is button height:
+  48 dp on Android vs 44 pt on iOS, which is exactly what
+  `lumo-parity`'s platform whitelist exists for).
+
+  **Honesty rules (locked, identical on both platforms):**
     - Token references (`MaterialTheme.spacing.md`,
-      `LocalDimensions.icon`, anything not a literal `N.dp`) emit
-      `ast-unresolved` with the token text as reason. Never a guess.
-    - Unknown composables are `ast-unresolved` ("unknown composable: X").
+      `LocalDimensions.icon`, `Theme.dim.btn`, anything not a literal
+      `N.dp` or bare pt) emit `ast-unresolved` with the token text as
+      reason. Never a guess.
+    - Unknown composables / views are `ast-unresolved` ("unknown
+      composable: X" / "unknown view: X").
     - An unresolved container *taints* every descendant — coordinates
       relative to a guessed offset would not be honest. Sibling
       elements are NOT tainted by an unresolved sibling.
-    - `weight(N)` siblings use a two-pass allocation: pass 1 measures
-      fixed-size children, pass 2 distributes the remaining axis extent
-      proportionally. Matches Compose's actual semantics.
 
-  Exposed as:
-    - CLI: `lumo-render compose --file Screen.kt [--target Name]
-      [--screen-width N] [--screen-height N] [--json] [--out file.json]`
-    - Public API: `lumo.render.render_compose(...)` /
-      `lumo.render.render_compose_file(...)`
+  **Exposed as:**
+    - CLI: `lumo-render compose --file Screen.kt [...]`
+    - CLI: `lumo-render swiftui --file LoginView.swift [...]`
+      (both share `--target`, `--screen-width`, `--screen-height`,
+      `--json`, `--out` flags)
+    - Public API: `lumo.render.render_compose(...)`,
+      `lumo.render.render_compose_file(...)`,
+      `lumo.render.render_swiftui(...)`,
+      `lumo.render.render_swiftui_file(...)`
 
 - **`lumo-theory check --from <dir>`.** Reads every `*.json` from a
-  directory (the natural shape of `lumo-render compose --out` output
-  per screen) and runs theory_check against each. `ast-unresolved`
-  elements are skipped per the honesty rule — they have no coordinates
-  to apply Fitts / Hick / reach checks to, and inferring would defeat
-  the point. The aggregate exit code is 1 if any file had findings,
-  0 if all clean, 2 if the directory was empty or unreadable.
+  directory (the natural shape of `lumo-render compose --out` /
+  `lumo-render swiftui --out` per screen) and runs theory_check against
+  each. `ast-unresolved` elements are skipped per the honesty rule —
+  they have no coordinates to apply Fitts / Hick / reach checks to, and
+  inferring would defeat the point. The aggregate exit code is 1 if any
+  file had findings, 0 if all clean, 2 if the directory was empty or
+  unreadable.
 
 ### Changed
 
@@ -82,15 +112,14 @@ measured > ast-resolved > code-estimated > description-estimated
 
 ### Notes
 
-- SwiftUI render is deliberately not in this release. The Compose
-  evaluator covers the largest immediate use case (KMP projects with
-  Compose UI) and validating one platform first means we get to refine
-  the evaluator API before locking in the SwiftUI shape. SwiftUI lands
-  in 0.0.11 or 0.0.12 depending on dogfood feedback.
-- Test suite: 180 → **207** (added 27 tests covering Column / Row /
-  Box / nested padding / weight / fillMaxWidth / Spacer / offset /
-  token taint propagation / unknown composables / testTag extraction
-  / honesty rule edge cases). 100% pass.
+- Test suite: 180 → **231** (added 27 Compose tests + 24 SwiftUI tests,
+  including a cross-platform parity sanity case). 100% pass, mypy
+  strict clean.
+- Both platforms ship in the same release deliberately. SwiftUI parity
+  is non-negotiable for KMP teams — there's no scenario where a Compose
+  screen exists without an iOS counterpart, and shipping Android-only
+  rendering would have left the `lumo-parity diff --from` pipeline
+  one-legged.
 
 ## [0.0.9] — 2026-05-18
 
