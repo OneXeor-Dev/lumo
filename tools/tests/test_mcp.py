@@ -210,10 +210,13 @@ def test_source_wrapper_accepts_custom_scale() -> None:
 
 
 def test_source_check_swiftui_wrapper_matches_direct_call() -> None:
+    # 0.0.9: tap-target finding only fires inside an interactive view.
+    # Wrap the small frame in Button so all three checks fire.
     src = """
     struct Brand: View {
         var body: some View {
-            Image(systemName: "x").frame(width: 20, height: 20)
+            Button(action: {}) { Image(systemName: "x") }
+                .frame(width: 20, height: 20)
             Rectangle()
                 .fill(Color(red: 0.7, green: 0, blue: 0))
                 .cornerRadius(13)

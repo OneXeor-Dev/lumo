@@ -5,6 +5,73 @@ All notable changes to Lumo are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and Lumo adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.9] — 2026-05-18
+
+A precision + ergonomics pass on `lumo-source` and `lumo-audit` after
+dogfooding 0.0.8 against four production mobile repos (CRDES, MMES,
+MMMX, kmp-common-components). Findings dropped from ~1.6k to ~287 on
+CRDES and from ~1.6k to ~11 on kmp-common — the rest was either scratch
+trees outside the codebase or the design system's own token declarations.
+Wall time on the largest repo went from ~8s to ~2s.
+
+### Fixed
+
+- **Audit walker now skips editor / agent scratch trees.** `.claude/`,
+  `.cursor/`, `.vscode/`, `.fleet/`, `.zed/` are added to `DEFAULT_SKIP_DIRS`
+  alongside the existing `build/`, `node_modules/`, `Pods/` etc.
+  Mobile monorepos commonly carry vendored AI tooling and worktree copies
+  under `.claude/worktrees/` — these inflated the CRDES scan from ~1.2k to
+  ~16k files and produced thousands of duplicate findings. Out-of-the-box
+  scans now hit only hand-written code.
+- **`hardcoded_color` no longer flags the design system's own palette.**
+  Two new honesty rules:
+    - Filename hint: `*Colors*.kt`, `*Palette*.kt` (and `.swift` equivalents)
+      are treated as the colour layer — every `Color(0xFF…)` / `Color(red:…)`
+      literal there is intentional, not a finding. `Theme.kt` deliberately
+      does NOT match (Theme files typically consume tokens; literals there
+      remain a real finding).
+    - AST hint: any literal whose enclosing call is `lightColorScheme(…)`,
+      `darkColorScheme(…)`, `lightColors(…)`, `darkColors(…)`, `Colors(…)`,
+      or `ColorScheme(…)` is also skipped — same logic, different surface.
+  On kmp-common-components this dropped `hardcoded_color` from **1095 → 1**.
+- **`undersized_tap_target` is now ancestor-aware.** Pre-0.0.9 a 24dp
+  decorative `Icon` or 20pt `Image` was flagged identically to a 32dp
+  `IconButton`. Now the check only fires when the element sits inside an
+  interactive composable / view or a clickable modifier chain:
+    - Compose: `Button`, `TextButton`, `OutlinedButton`, `ElevatedButton`,
+      `FilledTonalButton`, `IconButton` (+ filled / outlined / tonal /
+      toggle variants), `FloatingActionButton` (+ small / large /
+      extended), `Switch`, `Checkbox`, `RadioButton`, `Chip` family, or
+      a chain ending in `.clickable {…}` / `.combinedClickable` /
+      `.toggleable` / `.selectable`.
+    - SwiftUI: `Button`, `Link`, `NavigationLink`, `Toggle`, `Stepper`,
+      `Picker`, `Menu`, `DatePicker`, `ColorPicker`, `TabView`, or a
+      chain ending in `.onTapGesture {…}` / `.onLongPressGesture` /
+      `.gesture(…)` / `.highPriorityGesture` / `.simultaneousGesture` /
+      `.onHover` / `.buttonStyle(…)`.
+  Decorative icons and badges are no longer noise; real undersized
+  interactive elements still light up.
+- **Findings carry a readable snippet.** The snippet field used to be
+  the entire enclosing call expression — for chained Modifier / SwiftUI
+  calls that meant the whole `Modifier.fillMaxWidth().background(…).
+  padding(13.dp)` chain. Now the snippet is just the offending segment
+  (`.padding(13.dp)`, `.frame(width: 20, height: 20)`, etc.), single
+  line, capped at 120 chars.
+- **Audit walker is ~4× faster on large monorepos.** Replaced
+  `path.rglob("*")` + post-filter with `os.walk` + in-place
+  `dirnames` pruning, so skipped trees are never descended into. CRDES
+  wall time on a warm cache: 8.2s → 2.18s. MMMX (1979 files): 2.75s.
+  Smaller repos (MMES, kmp-common) finish in well under a second.
+
+### Notes
+
+- This is a behaviour-only release: the public API surface is unchanged.
+  The MCP tool registrations, CLI flags, JSON shape, and skill bundle
+  are all the same as 0.0.8. Upgrading is safe; expect significantly
+  quieter (and more accurate) findings.
+- Test suite: 154 → **180** (added 26 tests covering the new whitelists,
+  ancestor checks, and snippet shape). 100% pass, mypy strict clean.
+
 ## [0.0.8] — 2026-05-18
 
 ### Added

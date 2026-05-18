@@ -101,6 +101,110 @@ def test_single_undersized_dimension_alone_is_not_flagged() -> None:
     assert _findings_by_check(source, "undersized_tap_target") == []
 
 
+def test_decorative_image_frame_is_not_flagged() -> None:
+    # 0.0.9: a small `Image` with no interactive ancestor is decorative,
+    # not an undersized tap target. HIG's 44pt rule is for tap targets.
+    source = """
+    struct Logo: View {
+        var body: some View {
+            Image(systemName: "star")
+                .frame(width: 20, height: 20)
+        }
+    }
+    """
+    assert _findings_by_check(source, "undersized_tap_target") == []
+
+
+def test_decorative_rectangle_frame_is_not_flagged() -> None:
+    source = """
+    struct Dot: View {
+        var body: some View {
+            Rectangle().frame(width: 8, height: 8)
+        }
+    }
+    """
+    assert _findings_by_check(source, "undersized_tap_target") == []
+
+
+def test_onTapGesture_frame_is_flagged() -> None:
+    # `.onTapGesture {…}` turns ANY view into a tap target — a 20×20
+    # frame on it is a real a11y finding.
+    source = """
+    struct TappableDot: View {
+        var body: some View {
+            Rectangle()
+                .frame(width: 20, height: 20)
+                .onTapGesture { /* go */ }
+        }
+    }
+    """
+    findings = _findings_by_check(source, "undersized_tap_target")
+    assert len(findings) == 1
+
+
+def test_navigationlink_frame_is_flagged() -> None:
+    source = """
+    struct NL: View {
+        var body: some View {
+            NavigationLink(destination: Text("x")) { Image(systemName: "chevron.right") }
+                .frame(width: 20, height: 20)
+        }
+    }
+    """
+    findings = _findings_by_check(source, "undersized_tap_target")
+    assert len(findings) == 1
+
+
+def test_toggle_frame_is_flagged() -> None:
+    source = """
+    struct T: View {
+        @State var on = false
+        var body: some View {
+            Toggle("Switch", isOn: $on).frame(width: 30, height: 30)
+        }
+    }
+    """
+    findings = _findings_by_check(source, "undersized_tap_target")
+    assert len(findings) == 1
+
+
+def test_snippet_is_short_and_single_line() -> None:
+    # 0.0.9: SwiftUI snippets used to include the whole receiver chain.
+    # Now the finding's snippet is just `.padding(13)` — short, one line.
+    source = """
+    struct Box: View {
+        var body: some View {
+            Text("hi").padding(13)
+        }
+    }
+    """
+    findings = _findings_by_check(source, "off_scale_spacing")
+    assert len(findings) == 1
+    snippet = findings[0].snippet
+    assert snippet == ".padding(13)"
+    assert "Text" not in snippet
+    assert "\n" not in snippet
+
+
+def test_undersized_frame_snippet_is_short() -> None:
+    source = """
+    struct X: View {
+        var body: some View {
+            Button(action: {}) { Image(systemName: "x") }.frame(width: 20, height: 20)
+        }
+    }
+    """
+    findings = _findings_by_check(source, "undersized_tap_target")
+    assert len(findings) == 1
+    snippet = findings[0].snippet
+    # Just the offending modifier, no `Button { ... }` prefix.
+    assert "frame" in snippet
+    assert "20" in snippet
+    assert "Button" not in snippet
+    assert "Image" not in snippet
+    assert "\n" not in snippet
+
+
 # ============================================================================
 # Check 2 — off_scale_spacing  (consistency)
 # ============================================================================
@@ -234,6 +338,32 @@ def test_color_with_token_channel_is_not_flagged() -> None:
     assert _findings_by_check(source, "hardcoded_color") == []
 
 
+def test_color_literal_in_colors_swift_file_is_not_flagged() -> None:
+    # 0.0.9 honesty rule: literals inside the design-system colour layer
+    # are intentional. `Colors.swift` / `Palette.swift` define tokens.
+    source = """
+    extension Color {
+        static let brandPrimary = Color(red: 0.23, green: 0.51, blue: 0.96)
+        static let brandSurface = Color(red: 0.98, green: 0.98, blue: 0.98)
+    }
+    """
+    report = check_swiftui(source, path="DesignSystem/Colors.swift")
+    assert [f for f in report.findings if f.check == "hardcoded_color"] == []
+
+
+def test_color_literal_in_consumer_swift_file_is_still_flagged() -> None:
+    source = """
+    struct LoginButton: View {
+        var body: some View {
+            Button("Sign in") {}.foregroundColor(Color(red: 0.23, green: 0.51, blue: 0.96))
+        }
+    }
+    """
+    report = check_swiftui(source, path="Features/Login/LoginButton.swift")
+    findings = [f for f in report.findings if f.check == "hardcoded_color"]
+    assert len(findings) == 1
+
+
 # ============================================================================
 # Check 4 — off_scale_radius  (consistency)
 # ============================================================================
@@ -275,10 +405,13 @@ def test_token_corner_radius_is_not_flagged() -> None:
 
 
 def test_findings_are_sorted_by_severity() -> None:
+    # 0.0.9: tap-target finding only fires when the frame is on an
+    # interactive view — wrap the small frame in Button so all three
+    # checks fire and we can verify sort order.
     source = """
     struct All: View {
         var body: some View {
-            Image(systemName: "x")
+            Button(action: {}) { Image(systemName: "x") }
                 .frame(width: 20, height: 20)
             Rectangle()
                 .fill(Color(red: 0.5, green: 0, blue: 0))

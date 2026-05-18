@@ -55,6 +55,15 @@ DEFAULT_SKIP_DIRS: tuple[str, ...] = (
     ".pytest_cache",
     "dist",
     "out",
+    # Editor / agent scratch trees that ship with mobile monorepos. These
+    # carry working copies, AI-tooling vendored code, or IDE settings —
+    # never hand-written design code. Without these, a CRDES scan inflates
+    # from ~1.2k to ~16k files.
+    ".claude",
+    ".cursor",
+    ".vscode",
+    ".fleet",
+    ".zed",
 )
 
 
@@ -125,25 +134,34 @@ class AuditReport:
 def _iter_source_files(
     root: Path, extra_excludes: tuple[str, ...]
 ) -> list[tuple[Path, Language]]:
-    """Walk `root` and return every `.kt` / `.swift` file we should check."""
-    import fnmatch
+    """Walk `root` and return every `.kt` / `.swift` file we should check.
 
+    Uses `os.walk` with in-place pruning of `dirnames` so excluded trees are
+    never descended into — on a CRDES-scale monorepo this is the difference
+    between walking ~16k vs ~1.2k files, and ~8s vs <2s wall time.
+    """
+    import fnmatch
+    import os
+
+    skip_dirs = frozenset(DEFAULT_SKIP_DIRS)
     results: list[tuple[Path, Language]] = []
-    for path in root.rglob("*"):
-        if not path.is_file():
-            continue
-        # Hard-coded skip: any path segment matches DEFAULT_SKIP_DIRS.
-        if any(part in DEFAULT_SKIP_DIRS for part in path.parts):
-            continue
-        # Extra excludes (POSIX-style globs relative to root).
-        rel = path.relative_to(root).as_posix()
-        if any(fnmatch.fnmatch(rel, pat) for pat in extra_excludes):
-            continue
-        suffix = path.suffix.lower()
-        if suffix in (".kt", ".kts"):
-            results.append((path, "kotlin"))
-        elif suffix == ".swift":
-            results.append((path, "swift"))
+    for dirpath, dirnames, filenames in os.walk(root):
+        # Prune skipped directories in place — os.walk won't descend into
+        # the entries we remove from `dirnames`.
+        dirnames[:] = [d for d in dirnames if d not in skip_dirs]
+
+        for fname in filenames:
+            suffix = os.path.splitext(fname)[1].lower()
+            if suffix not in (".kt", ".kts", ".swift"):
+                continue
+            path = Path(dirpath) / fname
+            rel = path.relative_to(root).as_posix()
+            if extra_excludes and any(
+                fnmatch.fnmatch(rel, pat) for pat in extra_excludes
+            ):
+                continue
+            lang: Language = "swift" if suffix == ".swift" else "kotlin"
+            results.append((path, lang))
     results.sort()
     return results
 

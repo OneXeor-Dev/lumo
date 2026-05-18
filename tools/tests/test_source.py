@@ -89,6 +89,133 @@ def test_token_size_reference_is_not_flagged() -> None:
     assert _findings_by_check(source, "undersized_tap_target") == []
 
 
+def test_decorative_icon_size_is_not_flagged() -> None:
+    # 0.0.9: a small Icon with no interactive ancestor is decorative, not
+    # an undersized tap target. The Material spec says 48dp applies to
+    # *touch targets*, not to icons in general.
+    source = """
+    @Composable
+    fun DecorativeBadge() {
+        Icon(
+            imageVector = Icons.Filled.Info,
+            contentDescription = null,
+            modifier = Modifier.size(24.dp),
+        )
+    }
+    """
+    assert _findings_by_check(source, "undersized_tap_target") == []
+
+
+def test_decorative_image_size_is_not_flagged() -> None:
+    source = """
+    @Composable
+    fun BrandLogo() {
+        Image(
+            painter = painterResource(R.drawable.logo),
+            contentDescription = null,
+            modifier = Modifier.size(32.dp),
+        )
+    }
+    """
+    assert _findings_by_check(source, "undersized_tap_target") == []
+
+
+def test_decorative_box_size_is_not_flagged() -> None:
+    source = """
+    @Composable
+    fun Dot() {
+        Box(modifier = Modifier.size(8.dp).background(Color.Red))
+    }
+    """
+    assert _findings_by_check(source, "undersized_tap_target") == []
+
+
+def test_clickable_modifier_chain_is_flagged() -> None:
+    # `.clickable {}` turns ANY composable interactive — Box at 32dp with
+    # a click handler is a real undersized tap target.
+    source = """
+    @Composable
+    fun ClickableDot() {
+        Box(modifier = Modifier.size(32.dp).clickable { /* go */ })
+    }
+    """
+    findings = _findings_by_check(source, "undersized_tap_target")
+    assert len(findings) == 1
+    assert findings[0].metric["value_dp"] == 32.0
+
+
+def test_toggleable_modifier_chain_is_flagged() -> None:
+    source = """
+    @Composable
+    fun ToggleableDot() {
+        Box(modifier = Modifier.size(40.dp).toggleable(value = true, onValueChange = {}))
+    }
+    """
+    findings = _findings_by_check(source, "undersized_tap_target")
+    assert len(findings) == 1
+
+
+def test_selectable_modifier_chain_is_flagged() -> None:
+    source = """
+    @Composable
+    fun SelectableDot() {
+        Box(modifier = Modifier.size(36.dp).selectable(selected = false, onClick = {}))
+    }
+    """
+    findings = _findings_by_check(source, "undersized_tap_target")
+    assert len(findings) == 1
+
+
+def test_chip_size_is_flagged() -> None:
+    # Chip is interactive in Material — must enforce 48dp.
+    source = """
+    @Composable
+    fun TinyChip() {
+        FilterChip(
+            selected = false,
+            onClick = {},
+            label = { Text("x") },
+            modifier = Modifier.size(40.dp),
+        )
+    }
+    """
+    findings = _findings_by_check(source, "undersized_tap_target")
+    assert len(findings) == 1
+
+
+def test_snippet_is_short_and_single_line() -> None:
+    # 0.0.9: snippets used to be `_node_text(call_expression)` which on
+    # chained Modifier calls returned the whole receiver chain. Now the
+    # finding's snippet is just `.padding(13.dp)` — short, one line, no
+    # surrounding context.
+    source = """
+    @Composable
+    fun Card() {
+        Column(modifier = Modifier.padding(13.dp)) { }
+    }
+    """
+    findings = _findings_by_check(source, "off_scale_spacing")
+    assert len(findings) == 1
+    snippet = findings[0].snippet
+    assert snippet == ".padding(13.dp)"
+    assert "\n" not in snippet
+
+
+def test_undersized_tap_target_snippet_is_short() -> None:
+    source = """
+    @Composable
+    fun X() {
+        IconButton(onClick = {}, modifier = Modifier.size(32.dp)) { }
+    }
+    """
+    findings = _findings_by_check(source, "undersized_tap_target")
+    assert len(findings) == 1
+    snippet = findings[0].snippet
+    # Just the offending modifier, no `IconButton(...)` wrapper.
+    assert snippet == ".size(32.dp)"
+    assert "IconButton" not in snippet
+
+
 # ============================================================================
 # Check 2 — off_scale_spacing  (consistency)
 # ============================================================================
@@ -194,6 +321,72 @@ def test_named_color_constant_is_not_flagged() -> None:
     }
     """
     assert _findings_by_check(source, "hardcoded_color") == []
+
+
+def test_color_literal_in_lightColorScheme_is_not_flagged() -> None:
+    # 0.0.9 honesty rule: literals inside a colour-palette factory are
+    # the design system's OWN definition, not a hardcoded consumer.
+    source = """
+    val LightPalette = lightColorScheme(
+        primary = Color(0xFF3B82F6),
+        onPrimary = Color(0xFFFFFFFF),
+        surface = Color(0xFFFAFAFA),
+    )
+    """
+    assert _findings_by_check(source, "hardcoded_color") == []
+
+
+def test_color_literal_in_darkColorScheme_is_not_flagged() -> None:
+    source = """
+    val DarkPalette = darkColorScheme(
+        primary = Color(0xFF60A5FA),
+        onPrimary = Color(0xFF000000),
+    )
+    """
+    assert _findings_by_check(source, "hardcoded_color") == []
+
+
+def test_color_literal_in_colors_kt_file_is_not_flagged() -> None:
+    # Same literals, same callsite shape — but the *filename* says this is
+    # the colour layer. Common pattern: top-level `val Primary500 = Color(...)`.
+    source = """
+    val Primary500 = Color(0xFF3B82F6)
+    val Surface100 = Color(0xFFFAFAFA)
+    """
+    report = check_compose(source, path="ui/theme/Colors.kt")
+    assert [f for f in report.findings if f.check == "hardcoded_color"] == []
+
+
+def test_color_literal_in_palette_kt_file_is_not_flagged() -> None:
+    source = "val Brand = Color(0xFF3B82F6)"
+    report = check_compose(source, path="ui/theme/AppPalette.kt")
+    assert [f for f in report.findings if f.check == "hardcoded_color"] == []
+
+
+def test_color_literal_in_theme_kt_file_is_still_flagged() -> None:
+    # Theme.kt usually *consumes* tokens — hardcoded literals there ARE
+    # a real finding. Honesty rule deliberately doesn't whitelist this file.
+    source = """
+    @Composable
+    fun MyTheme(content: @Composable () -> Unit) {
+        Surface(color = Color(0xFF3B82F6)) { content() }
+    }
+    """
+    report = check_compose(source, path="ui/theme/Theme.kt")
+    assert len([f for f in report.findings if f.check == "hardcoded_color"]) == 1
+
+
+def test_color_literal_in_consumer_file_is_still_flagged() -> None:
+    # Sanity: the new whitelist must NOT silence consumer hardcoded colours.
+    source = """
+    @Composable
+    fun LoginButton() {
+        Button(colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3B82F6))) { }
+    }
+    """
+    report = check_compose(source, path="feature/login/LoginButton.kt")
+    findings = [f for f in report.findings if f.check == "hardcoded_color"]
+    assert len(findings) == 1
 
 
 # ============================================================================

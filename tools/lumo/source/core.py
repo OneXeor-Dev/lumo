@@ -50,6 +50,91 @@ SIZE_MODIFIERS = {"size", "width", "height", "minWidth", "minHeight"}
 PADDING_MODIFIERS = {"padding"}
 SHAPE_MODIFIERS = {"clip"}
 
+# Compose composables / factories that interactively trigger a click —
+# the tap-target minimum only applies when one of these is an ancestor.
+# Decorative Icon / Image without one of these is fine at any size.
+INTERACTIVE_COMPOSE_CALLS: frozenset[str] = frozenset({
+    "Button",
+    "TextButton",
+    "OutlinedButton",
+    "ElevatedButton",
+    "FilledTonalButton",
+    "IconButton",
+    "FilledIconButton",
+    "FilledTonalIconButton",
+    "OutlinedIconButton",
+    "IconToggleButton",
+    "FloatingActionButton",
+    "SmallFloatingActionButton",
+    "LargeFloatingActionButton",
+    "ExtendedFloatingActionButton",
+    "Switch",
+    "Checkbox",
+    "RadioButton",
+    "Chip",
+    "AssistChip",
+    "FilterChip",
+    "InputChip",
+    "SuggestionChip",
+})
+# Modifier-chain calls that also turn an element interactive.
+INTERACTIVE_MODIFIER_CALLS: frozenset[str] = frozenset({
+    "clickable",
+    "combinedClickable",
+    "toggleable",
+    "selectable",
+})
+
+# Factories that *declare* the design-system colour palette. Any Color(0x…)
+# literal whose ancestor call is one of these is the token's own definition,
+# not a hardcoded consumer — flagging it is noise, since refactoring it IS
+# the canonical way to change the palette.
+COLOR_DECLARATION_FACTORIES: frozenset[str] = frozenset({
+    "lightColorScheme",
+    "darkColorScheme",
+    "lightColors",
+    "darkColors",
+    "Colors",
+    "ColorScheme",
+})
+
+# SwiftUI views / modifiers that turn the element interactive. The 44pt
+# tap-target rule applies inside an interactive context; a decorative
+# Image or Rectangle at 20pt × 20pt is not a finding.
+INTERACTIVE_SWIFTUI_CALLS: frozenset[str] = frozenset({
+    "Button",
+    "Link",
+    "NavigationLink",
+    "Toggle",
+    "Stepper",
+    "Picker",
+    "Menu",
+    "DatePicker",
+    "ColorPicker",
+    "TabView",
+})
+INTERACTIVE_SWIFTUI_MODIFIERS: frozenset[str] = frozenset({
+    "onTapGesture",
+    "onLongPressGesture",
+    "gesture",
+    "highPriorityGesture",
+    "simultaneousGesture",
+    "onHover",
+    "buttonStyle",
+})
+
+# Filename stems (case-insensitive substring match) that mean "this file IS
+# the design-system colour layer". Hardcoded Color(0x…) is the intended
+# content here; flagging it produces nothing but noise.
+#
+# We deliberately don't match "theme" — Theme.kt typically *consumes*
+# tokens, and hardcoded literals there are a real finding. Palette and
+# *Color*.kt files are the unambiguous declaration sites.
+COLOR_DECLARATION_FILE_HINTS: tuple[str, ...] = (
+    "color",       # Colors.kt, AppColors.kt, ColorTokens.kt, BrandColor.kt
+    "palette",     # Palette.kt, AppPalette.kt
+)
+
 # SwiftUI uses bare pt — no .dp suffix. Modifier names map similarly.
 SWIFTUI_SIZE_MODIFIERS = {"frame"}
 SWIFTUI_PADDING_MODIFIERS = {"padding"}
@@ -131,6 +216,14 @@ def _walk(node: Node) -> Iterator[Node]:
     yield node
     for child in node.children:
         yield from _walk(child)
+
+
+def _ancestors(node: Node) -> Iterator[Node]:
+    """Yield each ancestor of `node`, starting with its parent."""
+    cur = node.parent
+    while cur is not None:
+        yield cur
+        cur = cur.parent
 
 
 def _parse_dp_literal(text: str) -> float | None:
@@ -236,6 +329,62 @@ def _location(node: Node, path: str) -> tuple[str, int, int]:
     return (path, node.start_point[0] + 1, node.start_point[1] + 1)
 
 
+_MAX_SNIPPET_LEN = 120
+
+
+def _truncate_snippet(text: str) -> str:
+    """Collapse whitespace and cap at `_MAX_SNIPPET_LEN`."""
+    s = " ".join(text.split())
+    if len(s) <= _MAX_SNIPPET_LEN:
+        return s
+    return s[: _MAX_SNIPPET_LEN - 1] + "…"
+
+
+def _compose_modifier_snippet(call_name: str, arg_text: str) -> str:
+    """Return a one-line, readable snippet for a Compose modifier finding.
+
+    Before 0.0.9, snippets were `_node_text(call_expression, src)` —
+    which for a chained call like `Modifier.fillMaxWidth().padding(13.dp)`
+    returns the WHOLE receiver chain. The user then had to hunt for the
+    offending segment. Now we render only `.padding(13.dp)` (or
+    `Modifier.size(32.dp)` when it's the first call) — readable at a glance.
+    """
+    # The call we flagged is named `call_name`; reconstruct the lone call.
+    args = " ".join(arg_text.split())  # strip newlines / extra spaces
+    # `padding` / `size` / etc. on a chain renders with leading dot.
+    return _truncate_snippet(f".{call_name}({args})")
+
+
+def _is_interactive_compose_context(node: Node, src: bytes) -> bool:
+    """True when `node` (a Modifier.size(...) call) sits inside an
+    interactive composable or a clickable modifier chain.
+
+    Two ways an element becomes interactive:
+      1. It's an argument to an interactive composable directly — e.g.
+         `IconButton(modifier = Modifier.size(32.dp)) {}`. The enclosing
+         call_expression's name is in INTERACTIVE_COMPOSE_CALLS.
+      2. The modifier chain it lives in continues into `.clickable {}`,
+         `.toggleable(...)`, etc. In tree-sitter-kotlin a chain
+         `Modifier.size(32.dp).clickable {}` parses as: outer call_expr
+         `.clickable{}` whose receiver chain contains the inner call_expr
+         `Modifier.size(32.dp)`. So we just walk ancestors and check
+         every call_expression we pass through.
+
+    A decorative `Box(modifier = Modifier.size(24.dp))` or a bare
+    `Image(modifier = Modifier.size(20.dp))` produces no enclosing
+    interactive call → returns False → no a11y finding.
+    """
+    for anc in _ancestors(node):
+        if anc.type != "call_expression":
+            continue
+        name = _callee_name(anc, src)
+        if name in INTERACTIVE_COMPOSE_CALLS:
+            return True
+        if name in INTERACTIVE_MODIFIER_CALLS:
+            return True
+    return False
+
+
 def _check_modifier_calls(
     root: Node,
     src: bytes,
@@ -254,19 +403,22 @@ def _check_modifier_calls(
             if value is None:
                 # Token reference or computed — fine.
                 continue
-            # Hardcoded numeric size — flag if below tap-target minimum AND
-            # the parent looks like an interactive surface. We don't have
-            # parent context yet (Phase 2 enhancement), so for now we only
-            # flag when value > 0 and < MIN_TAP_TARGET_DP and the modifier
-            # is `size` (most common for icon buttons).
-            if name == "size" and 0 < value < MIN_TAP_TARGET_DP:
+            # Hardcoded numeric size — only flag when the element is
+            # actually interactive (Button / IconButton / clickable / …).
+            # A decorative Icon or Image at 24dp is not a tap-target
+            # violation, it's expected.
+            if (
+                name == "size"
+                and 0 < value < MIN_TAP_TARGET_DP
+                and _is_interactive_compose_context(node, src)
+            ):
                 findings.append(
                     SourceFinding(
                         check="undersized_tap_target",
                         category="a11y",
                         severity="high",
                         file=file_, line=line, column=col,
-                        snippet=_node_text(node, src),
+                        snippet=_compose_modifier_snippet(name, arg_text),
                         message=(
                             f"Modifier.size({value}.dp) is below the Material "
                             f"minimum tap target ({MIN_TAP_TARGET_DP}dp)."
@@ -297,7 +449,7 @@ def _check_modifier_calls(
                         category="consistency",
                         severity="medium",
                         file=file_, line=line, column=col,
-                        snippet=_node_text(node, src),
+                        snippet=_compose_modifier_snippet(name, arg_text),
                         message=(
                             f"Modifier.padding({value}.dp) is not on the spacing "
                             f"scale (allowed: {list(spacing_scale)})."
@@ -313,8 +465,46 @@ def _check_modifier_calls(
     return findings
 
 
+def _is_color_declaration_file(path: str) -> bool:
+    """True when the filename stem hints at a design-system colour layer.
+
+    We only trust *names* — `Colors.kt`, `AppPalette.kt`, etc. The literals
+    inside are the design system's own definitions and flagging them is
+    pure noise. `Theme.kt` intentionally does NOT match (it usually
+    consumes tokens, and a hardcoded literal there is a real finding).
+    """
+    stem = Path(path).stem.lower()
+    return any(hint in stem for hint in COLOR_DECLARATION_FILE_HINTS)
+
+
+def _callee_name(call_node: Node, src: bytes) -> str:
+    """Return the last identifier on a call_expression's callee chain.
+
+    For `Modifier.size(...)` returns `size`; for `lightColorScheme(...)`
+    returns `lightColorScheme`; for `something.bar.baz(...)` returns `baz`.
+    """
+    if not call_node.children:
+        return ""
+    return _node_text(call_node.children[0], src).strip().rsplit(".", 1)[-1]
+
+
+def _has_color_declaration_ancestor(node: Node, src: bytes) -> bool:
+    """True if any enclosing call_expression is a colour-palette factory.
+
+    Walks parents until the file root. Cheap and accurate — declaration
+    factories are top-level by convention so the chain is short.
+    """
+    for anc in _ancestors(node):
+        if anc.type != "call_expression":
+            continue
+        if _callee_name(anc, src) in COLOR_DECLARATION_FACTORIES:
+            return True
+    return False
+
+
 def _check_color_literals(root: Node, src: bytes, path: str) -> list[SourceFinding]:
     findings: list[SourceFinding] = []
+    is_decl_file = _is_color_declaration_file(path)
     for node in _walk(root):
         if node.type != "call_expression":
             continue
@@ -327,6 +517,13 @@ def _check_color_literals(root: Node, src: bytes, path: str) -> list[SourceFindi
         hex_value = _parse_hex_color(full)
         if hex_value is None:
             continue
+        # Honesty rule extension: hardcoded literals inside the design
+        # system's OWN palette declaration are intentional — that file IS
+        # the source of truth for the colour tokens. Flagging them just
+        # tells the user "go redefine your design system in a different
+        # place," which isn't what `hardcoded_color` is meant to catch.
+        if is_decl_file or _has_color_declaration_ancestor(node, src):
+            continue
         file_, line, col = _location(node, path)
         findings.append(
             SourceFinding(
@@ -334,7 +531,7 @@ def _check_color_literals(root: Node, src: bytes, path: str) -> list[SourceFindi
                 category="token",
                 severity="medium",
                 file=file_, line=line, column=col,
-                snippet=full,
+                snippet=_truncate_snippet(full),
                 message=(
                     f"Hardcoded Color({hex_value}) bypasses the design-system "
                     "colour tokens — refactor will be invisible to this call site."
@@ -382,7 +579,7 @@ def _check_corner_radius(
                 category="consistency",
                 severity="low",
                 file=file_, line=line, column=col,
-                snippet=full,
+                snippet=_truncate_snippet(full),
                 message=(
                     f"RoundedCornerShape({value}.dp) is not on the radius scale "
                     f"(allowed: {list(radius_scale)})."
@@ -567,6 +764,80 @@ def _iter_swiftui_modifier_calls(
         yield name, value_args, node
 
 
+def _is_interactive_swiftui_context(node: Node, src: bytes) -> bool:
+    """True when a SwiftUI `.frame(...)` sits inside an interactive context.
+
+    Unlike Compose, SwiftUI's modifier chains parse with the modifier as
+    the OUTERMOST call_expression — `Button { … }.frame(w, h)` has
+    `.frame(...)` as the outer call and `Button { … }` as its receiver
+    (a descendant). So we walk both directions:
+
+      • Ancestors — catches the case where `.frame(...)` is itself
+        nested inside a larger interactive call, e.g. used as an argument:
+        `Button(...) { Rectangle().frame(width: 20, height: 20) }`.
+      • The receiver chain of `node`'s navigation_expression callee —
+        catches the common chained-modifier case `Button {…}.frame(…)`,
+        and also `view.frame(…).onTapGesture {…}` where the gesture sits
+        outside frame.
+
+    Both must be checked to avoid false positives and false negatives.
+    """
+    # 1. Walk ancestors for an enclosing interactive call.
+    for anc in _ancestors(node):
+        if anc.type != "call_expression":
+            continue
+        cname = _swiftui_call_name(anc, src)
+        if cname in INTERACTIVE_SWIFTUI_CALLS or cname in INTERACTIVE_SWIFTUI_MODIFIERS:
+            return True
+
+    # 2. Walk the receiver chain of the .frame() call itself. Every
+    #    call_expression we encounter inside the callee's subtree is a
+    #    preceding view or modifier on the same chain.
+    if node.children:
+        callee = node.children[0]
+        for sub in _walk(callee):
+            if sub is node or sub.type != "call_expression":
+                continue
+            cname = _swiftui_call_name(sub, src)
+            if cname in INTERACTIVE_SWIFTUI_CALLS or cname in INTERACTIVE_SWIFTUI_MODIFIERS:
+                return True
+    return False
+
+
+def _swiftui_modifier_snippet(name: str, value_args: Node, src: bytes) -> str:
+    """Render a SwiftUI modifier finding as `.<name>(<args>)` only.
+
+    Mirrors `_compose_modifier_snippet` — the receiver chain is dropped
+    so the snippet fits on one readable line.
+    """
+    args_text = " ".join(_node_text(value_args, src).split())
+    return _truncate_snippet(f".{name}{args_text}")
+
+
+def _swiftui_call_name(call_node: Node, src: bytes) -> str:
+    """Return the bare name of a SwiftUI call_expression's callee.
+
+    Handles both forms: `Button(...)` (callee is `simple_identifier`) and
+    `something.frame(...)` (callee is `navigation_expression` whose last
+    `navigation_suffix` holds the method name).
+    """
+    if not call_node.children:
+        return ""
+    callee = call_node.children[0]
+    if callee.type == "simple_identifier":
+        return _node_text(callee, src).strip()
+    if callee.type == "navigation_expression":
+        last = ""
+        for c in callee.children:
+            if c.type == "navigation_suffix":
+                for cc in c.children:
+                    if cc.type == "simple_identifier":
+                        last = _node_text(cc, src).strip()
+                        break
+        return last
+    return ""
+
+
 def _check_swiftui_modifiers(
     root: Node,
     src: bytes,
@@ -600,9 +871,16 @@ def _check_swiftui_modifiers(
                 # At least one dimension is a token / variable — skip per
                 # honesty rule rather than partially flagging.
                 continue
-            # If width AND height are both literal AND both < HIG min, flag.
+            # If width AND height are both literal AND both < HIG min, flag —
+            # but only inside an interactive context. A decorative
+            # `Rectangle().frame(width: 20, height: 20)` is not a tap target.
             dims = [labelled[k] for k in ("width", "height") if k in labelled]
-            if dims and all(0 < d < MIN_TAP_TARGET_PT for d in dims) and len(dims) >= 2:
+            if (
+                dims
+                and all(0 < d < MIN_TAP_TARGET_PT for d in dims)
+                and len(dims) >= 2
+                and _is_interactive_swiftui_context(node, src)
+            ):
                 smaller = min(dims)
                 findings.append(
                     SourceFinding(
@@ -610,7 +888,7 @@ def _check_swiftui_modifiers(
                         category="a11y",
                         severity="high",
                         file=file_, line=line, column=col,
-                        snippet=_node_text(node, src),
+                        snippet=_swiftui_modifier_snippet(name, value_args, src),
                         message=(
                             f".frame(width: {labelled.get('width')}, "
                             f"height: {labelled.get('height')}) is below the "
@@ -665,7 +943,7 @@ def _check_swiftui_modifiers(
                         category="consistency",
                         severity="medium",
                         file=file_, line=line, column=col,
-                        snippet=_node_text(node, src),
+                        snippet=_swiftui_modifier_snippet(name, value_args, src),
                         message=(
                             f".padding({numeric_arg}) is not on the spacing "
                             f"scale (allowed: {list(spacing_scale)})."
@@ -696,7 +974,7 @@ def _check_swiftui_modifiers(
                     category="consistency",
                     severity="low",
                     file=file_, line=line, column=col,
-                    snippet=_node_text(node, src),
+                    snippet=_swiftui_modifier_snippet(name, value_args, src),
                     message=(
                         f".cornerRadius({v}) is not on the radius scale "
                         f"(allowed: {list(radius_scale)})."
@@ -721,8 +999,12 @@ def _check_swiftui_color_literals(root: Node, src: bytes, path: str) -> list[Sou
       - `Color(red: brand.r, green: ...)` — any non-literal channel
       - `Color(hex: "...")` — custom extension; we'd need to know which
         extension to interpret it. Documented limitation.
+      - Any literal in a Colors.swift / Palette.swift file — that file IS
+        the design-system colour layer; literals there are intentional.
     """
     findings: list[SourceFinding] = []
+    if _is_color_declaration_file(path):
+        return findings
     for node in _walk(root):
         if node.type != "call_expression":
             continue
@@ -795,7 +1077,7 @@ def _check_swiftui_color_literals(root: Node, src: bytes, path: str) -> list[Sou
                 category="token",
                 severity="medium",
                 file=file_, line=line, column=col,
-                snippet=_node_text(node, src),
+                snippet=_truncate_snippet(_node_text(node, src)),
                 message=(
                     f"Hardcoded Color({hex_val}) bypasses the design-system "
                     "colour tokens — refactor will be invisible to this call site."

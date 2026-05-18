@@ -3,7 +3,7 @@
 > Mobile UI/UX design intelligence for AI coding assistants, grounded in
 > cognitive science — not just style guides.
 
-**Status:** v0.0.8 published (alpha — PyPI and npm versions stay in lock-
+**Status:** v0.0.9 published (alpha — PyPI and npm versions stay in lock-
 step). Seven tools work (`lumo-wcag`, `lumo-theory`, `lumo-parity`,
 `lumo-source`, `lumo-audit`, `lumo-figma`, plus the `lumo-mcp` server),
 five install paths are live (`npx @onexeor/lumo init` · `npx skills add`

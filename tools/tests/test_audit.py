@@ -78,6 +78,26 @@ def test_walker_skips_default_directories(tmp_path: Path) -> None:
     assert report.files_scanned == 1
 
 
+def test_walker_skips_editor_and_agent_scratch_trees(tmp_path: Path) -> None:
+    # 0.0.9 regression guard: .claude/worktrees on real mobile monorepos
+    # carried full repo copies that inflated CRDES scans from ~1.2k to ~16k
+    # files. Same for .cursor/.vscode/.fleet/.zed.
+    for hidden in (".claude", ".cursor", ".vscode", ".fleet", ".zed"):
+        _write(tmp_path, f"{hidden}/worktrees/foo.kt", "")
+        _write(tmp_path, f"{hidden}/inside.kt", "")
+    _write(tmp_path, "src/visible.kt", "")
+    report = scan_repo(tmp_path)
+    assert report.files_scanned == 1
+
+
+def test_walker_prunes_skipped_dirs_at_any_depth(tmp_path: Path) -> None:
+    # A build/ tree deep inside the repo should also be invisible.
+    _write(tmp_path, "feature/auth/build/generated.kt", "")
+    _write(tmp_path, "feature/auth/src/Login.kt", "")
+    report = scan_repo(tmp_path)
+    assert report.files_scanned == 1
+
+
 def test_walker_respects_extra_excludes(tmp_path: Path) -> None:
     _write(tmp_path, "src/keep.kt", "")
     _write(tmp_path, "tests/skip.kt", "")
