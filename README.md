@@ -3,12 +3,12 @@
 > Mobile UI/UX design intelligence for AI coding assistants, grounded in
 > cognitive science — not just style guides.
 
-**Status:** v0.0.7 published (alpha — PyPI and npm versions stay in lock-
-step). Six tools work (`lumo-wcag`, `lumo-theory`, `lumo-parity`,
-`lumo-source`, `lumo-audit`, plus the `lumo-mcp` server), five install
-paths are live (`npx @onexeor/lumo init` · `npx skills add` · Claude
-plugin marketplace · `pipx install lumo-mobile` · git clone), and the
-MCP server exposes seven functions to every major AI client.
+**Status:** v0.0.8 published (alpha — PyPI and npm versions stay in lock-
+step). Seven tools work (`lumo-wcag`, `lumo-theory`, `lumo-parity`,
+`lumo-source`, `lumo-audit`, `lumo-figma`, plus the `lumo-mcp` server),
+five install paths are live (`npx @onexeor/lumo init` · `npx skills add`
+· Claude plugin marketplace · `pipx install lumo-mobile` · git clone),
+and the MCP server exposes eight functions to every major AI client.
 
 Lumo helps mobile developers build polished, accessible UI by applying
 **Fitts**, **Hick**, **Gestalt**, and **Nielsen** alongside Apple HIG and
@@ -25,6 +25,7 @@ guesses.
 | `lumo-parity` | Cross-platform diff between Android (Compose / XML, in dp) and iOS (SwiftUI / UIKit, in pt). Flags size and component mismatches. Whitelists known platform divergences (Material 48 dp vs Apple HIG 44 pt, etc.) so the noise stays out. Optional `lumo.config.json` validates both platforms against shared design tokens. |
 | `lumo-source` | AST-based design-system drift checks for Jetpack Compose `.kt` and SwiftUI `.swift` files. Flags hardcoded colours, off-scale paddings / radii, and undersized tap targets (Material 48dp on Compose, Apple HIG 44pt on SwiftUI) — but never trips on theme tokens (`MaterialTheme.*`, `LocalDimensions.*`, `Color("brand…")`, asset-catalog lookups) since those are exactly what Lumo wants to encourage. |
 | `lumo-audit` | Whole-repository scan. Walks every `.kt` / `.swift` file, aggregates `lumo-source` findings, and surfaces the *measured* spacing / radius scale — the actual frequency of every hardcoded literal in the codebase. Lets you compare what your design system claims against what the code actually does. |
+| `lumo-figma` | Diff Figma design tokens (COLOR + FLOAT variables) against the audited code. Matches by value, not name. Three buckets: matched, unused-in-code (candidates for review), and missing-from-Figma (heavy code values waiting to be promoted to the design system). |
 | `lumo-mcp` | Model Context Protocol server. Exposes all of the above to Claude Code, Cursor, Continue, Aider, Goose, Zed, OpenAI Codex CLI, and any other MCP-aware client. |
 
 Each tool returns structured findings (severity, recommendation, metric)
@@ -128,10 +129,10 @@ pipx install lumo-mobile          # global CLI install
 pip install lumo-mobile           # any existing venv
 ```
 
-Gives you the six CLIs (`lumo-wcag`, `lumo-theory`, `lumo-parity`,
-`lumo-source`, `lumo-audit`, `lumo-mcp`) without touching any AI client
-config. Use this if you want to wire Lumo into CI, scripts, or a custom
-workflow.
+Gives you the seven CLIs (`lumo-wcag`, `lumo-theory`, `lumo-parity`,
+`lumo-source`, `lumo-audit`, `lumo-figma`, `lumo-mcp`) without touching
+any AI client config. Use this if you want to wire Lumo into CI, scripts,
+or a custom workflow.
 
 ### 5. Git clone + manual
 

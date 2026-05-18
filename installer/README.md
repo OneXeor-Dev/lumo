@@ -35,8 +35,8 @@ Under the hood the installer:
    `~/.lumo/venv` so your system Python stays clean.
 2. `pip install`s the `lumo-mobile` package from PyPI into that venv.
    The CLIs (`lumo-wcag`, `lumo-theory`, `lumo-parity`, `lumo-source`,
-   `lumo-audit`, `lumo-mcp`) become available at absolute paths the MCP
-   configs point to.
+   `lumo-audit`, `lumo-figma`, `lumo-mcp`) become available at absolute
+   paths the MCP configs point to.
 3. Copies the `SKILL.md` bundle into the chosen client's skill directory.
 4. Merges a `{ "mcpServers": { "lumo": { "command": "..." } } }` block
    into the client's MCP config — non-destructive, backs up the file once

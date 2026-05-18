@@ -111,7 +111,7 @@ Goal: `npx @onexeor/lumo init` works end-to-end with four demonstrable tools (wc
 | 1 | `wcag_validator` | ✅ Shipped | W3C luminance formula + OKLCH auto-correct that preserves chroma and hue. 28 tests against WebAIM / Material / Apple anchors. |
 | 2 | `theory_check` | ✅ Shipped | Fitts (undersized + relative difficulty for primary), Hick overload, Gestalt proximity, reach rules. 17 tests. Nielsen heuristics intentionally not in the tool (not reliably numeric). |
 | 3 | `platform_parity` | ✅ Shipped | Android (dp) vs iOS (pt) diff. Component presence, sizing diff, design-system token validation. Platform-specific defaults whitelisted (44 pt vs 48 dp etc.). 14 tests. |
-| 4 | `mcp_server` | ✅ Shipped | Stdio MCP server (`lumo-mcp`) exposing every Lumo tool to Claude Code, Cursor, Continue, Aider, Goose, Zed, Codex. As of v0.0.7 it registers 7 functions (`lumo_wcag_check`, `lumo_wcag_fix`, `lumo_theory_check`, `lumo_parity_diff`, `lumo_source_check_compose`, `lumo_source_check_swiftui`, `lumo_audit_scan`) with registration + wrapper-parity tests for each. |
+| 4 | `mcp_server` | ✅ Shipped | Stdio MCP server (`lumo-mcp`) exposing every Lumo tool to Claude Code, Cursor, Continue, Aider, Goose, Zed, Codex. As of v0.0.8 it registers 8 functions (`lumo_wcag_check`, `lumo_wcag_fix`, `lumo_theory_check`, `lumo_parity_diff`, `lumo_source_check_compose`, `lumo_source_check_swiftui`, `lumo_audit_scan`, `lumo_figma_diff`) with registration + wrapper-parity tests for each. |
 
 ### Distribution (five install paths, all wired up)
 
@@ -146,7 +146,8 @@ lumo/
 │       ├── parity/       # ✅ tool 3
 │       ├── source/       # ✅ tool 4 — Compose + SwiftUI AST checks
 │       ├── audit/        # ✅ tool 5 — whole-repo aggregator
-│       └── mcp/          # ✅ MCP server (7 functions)
+│       ├── figma/        # ✅ tool 6 — Figma token diff
+│       └── mcp/          # ✅ MCP server (8 functions)
 ├── data/                 # placeholder — rules still inline
 ├── examples/             # ✅ layout pairs + .kt / .swift anchors + lumo.config.json
 └── installer/            # ✅ @onexeor/lumo on npm
@@ -189,7 +190,22 @@ lumo/
      audit doesn't depend on git, so adopting `.gitignore` itself would
      be a hidden coupling. Land after Figma sync + snapshot capture so
      the audit's role in the lifecycle is fully understood.
-6. **`figma_sync`** — Figma REST API → extract variables/styles → diff against code.
+6. **`lumo-figma` — Figma token diff** ✅ shipped in v0.0.8.
+   Fetches Figma variables (COLOR + FLOAT) via `/v1/files/{key}/variables/local`,
+   resolves alias chains and named modes, diffs by value against a
+   `lumo-audit` JSON payload. Three buckets: matched / unused_in_code /
+   missing_from_figma. Match key is value, never name — Figma names
+   (`spacing/lg`) and code identifiers (`Dimens.lg.dp`) drift across
+   projects, so name-based join produces false negatives. Auth via
+   `FIGMA_TOKEN` env (never via CLI flags). Exposed as CLI
+   (`lumo-figma diff --file-key … --root .`) and as the 8th MCP tool
+   (`lumo_figma_diff`).
+   - **Out of scope (v1):** Styles (the older Figma token system) need
+     a node-tree walk and ship in a later phase. Frame-by-frame layout
+     diff lives in `snapshot_input`, not here. No mapping config — we
+     match by value, so naming convention drift doesn't block the
+     diff. Add a `figma.mapping` config only when a real user case
+     demonstrates name-aware matching is materially better.
 7. **`snapshot_input`** — read **measured** layouts from snapshot-testing
    frameworks (Roborazzi + swift-snapshot-testing). Full design in
    [docs/design/snapshot-input.md](./docs/design/snapshot-input.md).

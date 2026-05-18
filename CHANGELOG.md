@@ -5,6 +5,63 @@ All notable changes to Lumo are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and Lumo adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.8] — 2026-05-18
+
+### Added
+
+- **`lumo-figma`** — diff Figma design tokens against the audited code.
+  Fetches COLOR + FLOAT variables from the Figma REST API
+  (`/v1/files/{key}/variables/local`), resolves alias chains, picks a
+  named mode (or each collection's default), and compares against a
+  `lumo-audit --json` payload. Three buckets in the diff:
+  - **matched** — token value present in Figma AND in code, with code
+    occurrence count from the audit.
+  - **unused_in_code** — token declared in Figma but no literal in code
+    matches its value. Treated as **candidates for review**, not a
+    hit-list for deletion — theme indirection
+    (`MaterialTheme.colorScheme.*`, `LocalDimensions.*`,
+    `Color("brandPrimary")`) is invisible to the AST audit, so a token
+    may still be used via the design-system layer.
+  - **missing_from_figma** — value used in code ≥ `--missing-threshold`
+    times (default 3) with no Figma token. Strong candidate for
+    promotion to the design system.
+- **Match by value, not by name.** Figma names (`spacing/lg`) and code
+  identifiers (`Dimens.lg.dp`, `Theme.spacing.large`) drift across
+  projects. The only stable join key is the resolved hex / number.
+  Names appear in the report for human reference, never as a match key.
+- New MCP tool `lumo_figma_diff` — server now exposes **8 tools**.
+- `lumo-figma diff` CLI accepts `--file-key` or `--url`, `--audit` JSON
+  file or `--root` for inline scan, `--mode <name>`, `--missing-threshold`,
+  `--json`, and `--out <file.md>`. Auth via `FIGMA_TOKEN` env var only —
+  never via CLI flags (would leak into shell history).
+- 22 new tests in `tests/test_figma.py` covering URL parsing (file/design/
+  proto/board paths, node-id normalisation), payload parsing (COLOR +
+  FLOAT, alias chains, alias cycles, mode selection, unknown types
+  dropped), HTTP layer via `httpx.MockTransport` (header, 4xx error
+  surfacing, env-var fallback, missing-env error), and diff math
+  (value-only matching, threshold cutoff, hex normalisation, empty
+  inputs). One new MCP wrapper-parity test. Suite: **154/154 pass,
+  mypy strict clean**.
+- CI gains a smoke check that asserts `lumo-figma` produces a clean
+  `FIGMA_TOKEN`-missing error when invoked without auth.
+- `httpx` added as an explicit dependency in `pyproject.toml`. It was
+  already pulled in transitively via `mcp`; making it explicit avoids
+  a surprise break if `mcp` ever drops it.
+- `lumo-figma` script added to the installer's
+  `listInstalledBinaries` (7 expected console scripts now).
+
+### Out of scope (v1)
+
+- **Figma styles** — the older token system (paint/text/effect
+  styles). Requires a node-tree walk to extract values. Lands in a
+  follow-up once variables coverage proves the diff model.
+- **Frame-by-frame layout diff** — comparing screen geometry against
+  Compose / SwiftUI screens is a different problem; lives behind the
+  `snapshot_input` capture libraries in Phase 2.5.
+- **Name-aware matching** — no `figma.mapping` config in
+  `lumo.config.json` yet. Add only if real user cases show name-aware
+  matching is materially better than value-only.
+
 ## [0.0.7] — 2026-05-18
 
 ### Added
