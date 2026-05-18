@@ -206,14 +206,52 @@ lumo/
      match by value, so naming convention drift doesn't block the
      diff. Add a `figma.mapping` config only when a real user case
      demonstrates name-aware matching is materially better.
-7. **`snapshot_input`** — read **measured** layouts from snapshot-testing
-   frameworks (Roborazzi + swift-snapshot-testing). Full design in
+7. **`lumo-render` — AST layout evaluator** ⏳ next.
+   Walks the same tree-sitter AST `lumo-source` already produces, but
+   instead of running drift checks it *evaluates* the layout: an
+   offset-stack interpreter for `Column` / `Row` / `Box` and the common
+   modifier transforms (`padding` / `size` / `width` / `height` /
+   `fillMaxWidth` / `wrapContent` / `offset` / `Spacer` / `weight`)
+   produces measured-like `(x, y, w, h)` for every element that can be
+   statically resolved. The output is a Lumo-schema layout JSON ready to
+   feed `lumo-theory check --from` and `lumo-parity diff --from`.
+
+   Honesty hierarchy upgrade — a new label slots in between the existing
+   ones:
+
+   ```
+   measured > ast-resolved > code-estimated > description-estimated
+   ```
+
+   - `ast-resolved` — value came from a static AST evaluation of known
+     layout rules. Higher trust than `code-estimated` (which is "the LLM
+     guessed numbers from reading code") because the evaluator is
+     deterministic and refuses to invent values it cannot derive.
+   - Token references (`MaterialTheme.spacing.md`), `fillMaxWidth`
+     without a known screen width, `weight(1f)` siblings, runtime data,
+     and unknown composables all emit `ast-unresolved` entries with a
+     `reason` field — never a guessed number. Same honesty rule as
+     `lumo-source`.
+
+   This closes most of the value `snapshot_input` was meant to deliver,
+   without requiring the user to have snapshot tests. Coverage on a
+   typical mobile form / KYC screen is ~60–80% of elements; the rest
+   stays `ast-unresolved` and the downstream tools (`theory` / `parity`)
+   skip those instead of inferring.
+
+8. **`snapshot_input`** — read **measured** layouts from snapshot-testing
+   frameworks (Roborazzi + swift-snapshot-testing). Moved to Phase 3 as
+   a *precision upgrade* — `lumo-render` already produces high-trust
+   coordinates without snapshot-test infrastructure, so the
+   capture-library work only earns its keep when a user needs the last
+   20% of accuracy (runtime token resolution, dynamic type, weight
+   siblings). Full design still in
    [docs/design/snapshot-input.md](./docs/design/snapshot-input.md).
-8. **`rules_search`** — hybrid BM25 + local embedding search over rules DB.
-9. **`audit_html`** — optional HTML report renderer for `lumo-audit`.
-   Postponed: would add a templating dep (jinja2 etc.) and Socket will
-   flag the new attack surface. The current markdown / JSON output is
-   enough for CI consumption; revisit after dogfood.
+9. **`rules_search`** — hybrid BM25 + local embedding search over rules DB.
+10. **`audit_html`** — optional HTML report renderer for `lumo-audit`.
+    Postponed: would add a templating dep (jinja2 etc.) and Socket will
+    flag the new attack surface. The current markdown / JSON output is
+    enough for CI consumption; revisit after dogfood.
 
 ### Data
 
@@ -233,8 +271,17 @@ lumo/
 
 ### Tools
 
-10. Visual diff: render Compose preview + SwiftUI snapshot → pixel/structural diff.
-11. Per-project memory recall — skill automatically pulls learned patterns into reviews.
+11. **`snapshot_input` — measured coordinates via capture libraries.**
+    Moved here from Phase 2 once `lumo-render` lands. Ships two thin
+    libraries (`lumo-android-capture` for Roborazzi, `lumo-ios-capture`
+    for `swift-snapshot-testing`) that emit Lumo-schema JSON next to the
+    bitmap, stamped `source: "measured"`. Earns its keep on screens where
+    `lumo-render` falls back to `ast-unresolved` — runtime token
+    resolution, dynamic type, weight siblings, lazy lists. Acceptance
+    criteria + design in
+    [docs/design/snapshot-input.md](./docs/design/snapshot-input.md).
+12. Visual diff: render Compose preview + SwiftUI snapshot → pixel/structural diff.
+13. Per-project memory recall — skill automatically pulls learned patterns into reviews.
 
 ### Distribution
 

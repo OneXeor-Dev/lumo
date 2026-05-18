@@ -5,6 +5,93 @@ All notable changes to Lumo are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and Lumo adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.10] — 2026-05-18
+
+The biggest gap in Lumo's accuracy story was the **layout JSON input**
+the cognitive-science tools (`lumo-theory`, `lumo-parity`) consume:
+without a snapshot test you had to either hand-build coordinates or ask
+the LLM to guess from code. Either way, the input was a guess — making
+the deterministic Fitts / Hick / Gestalt checks downstream less honest
+than the math suggested.
+
+This release adds **`lumo-render`** — an AST-driven layout evaluator
+that produces measured-like coordinates from Compose source, with no
+build, no app run, no snapshot test, no LLM step. The result is a fourth
+honesty label between `measured` and `code-estimated`:
+
+```
+measured > ast-resolved > code-estimated > description-estimated
+```
+
+### Added
+
+- **`lumo-render` — AST layout evaluator for Jetpack Compose.**
+  Walks the same tree-sitter AST `lumo-source` already uses, but instead
+  of running drift checks it *evaluates* the layout: an offset-stack
+  interpreter for `Column` / `Row` / `Box` / `Card` / `Surface` and the
+  common modifier transforms (`padding(...)` in every form,
+  `size` / `width` / `height`, `fillMaxWidth` / `fillMaxHeight` /
+  `fillMaxSize`, `offset(x, y)`, `weight(N)`, `wrapContentSize`,
+  `testTag`) produces `(x, y, w, h)` for every element that can be
+  derived statically. Atoms supported in v1: `Text`, `Button` (and
+  outlined / text / elevated / tonal variants), `IconButton` (and
+  filled / tonal / outlined variants), `Icon`, `Image`,
+  `FloatingActionButton` (and small / large / extended), `Spacer`.
+
+  Output is the same Lumo layout JSON `lumo-theory` and `lumo-parity`
+  already consume. Each element carries `source: "ast-resolved"` or
+  `"ast-unresolved"` with a `reason` field — we never invent
+  coordinates we cannot derive.
+
+  Honesty rules (locked):
+    - Token references (`MaterialTheme.spacing.md`,
+      `LocalDimensions.icon`, anything not a literal `N.dp`) emit
+      `ast-unresolved` with the token text as reason. Never a guess.
+    - Unknown composables are `ast-unresolved` ("unknown composable: X").
+    - An unresolved container *taints* every descendant — coordinates
+      relative to a guessed offset would not be honest. Sibling
+      elements are NOT tainted by an unresolved sibling.
+    - `weight(N)` siblings use a two-pass allocation: pass 1 measures
+      fixed-size children, pass 2 distributes the remaining axis extent
+      proportionally. Matches Compose's actual semantics.
+
+  Exposed as:
+    - CLI: `lumo-render compose --file Screen.kt [--target Name]
+      [--screen-width N] [--screen-height N] [--json] [--out file.json]`
+    - Public API: `lumo.render.render_compose(...)` /
+      `lumo.render.render_compose_file(...)`
+
+- **`lumo-theory check --from <dir>`.** Reads every `*.json` from a
+  directory (the natural shape of `lumo-render compose --out` output
+  per screen) and runs theory_check against each. `ast-unresolved`
+  elements are skipped per the honesty rule — they have no coordinates
+  to apply Fitts / Hick / reach checks to, and inferring would defeat
+  the point. The aggregate exit code is 1 if any file had findings,
+  0 if all clean, 2 if the directory was empty or unreadable.
+
+### Changed
+
+- Roadmap reorganized: `lumo-render` becomes the next Phase 2 ship.
+  `snapshot_input` (Roborazzi + swift-snapshot-testing capture libs)
+  moves to Phase 3 as a *precision upgrade* — it earns its keep on the
+  ~20% of screens where `lumo-render` falls back to `ast-unresolved`
+  (runtime token resolution, dynamic type, weight siblings driven by
+  state, lazy lists). The design doc at
+  `docs/design/snapshot-input.md` is unchanged; the build order shifted.
+- README: tool count bumped from seven to eight (`lumo-render` added).
+
+### Notes
+
+- SwiftUI render is deliberately not in this release. The Compose
+  evaluator covers the largest immediate use case (KMP projects with
+  Compose UI) and validating one platform first means we get to refine
+  the evaluator API before locking in the SwiftUI shape. SwiftUI lands
+  in 0.0.11 or 0.0.12 depending on dogfood feedback.
+- Test suite: 180 → **207** (added 27 tests covering Column / Row /
+  Box / nested padding / weight / fillMaxWidth / Spacer / offset /
+  token taint propagation / unknown composables / testTag extraction
+  / honesty rule edge cases). 100% pass.
+
 ## [0.0.9] — 2026-05-18
 
 A precision + ergonomics pass on `lumo-source` and `lumo-audit` after

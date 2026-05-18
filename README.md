@@ -3,12 +3,13 @@
 > Mobile UI/UX design intelligence for AI coding assistants, grounded in
 > cognitive science — not just style guides.
 
-**Status:** v0.0.9 published (alpha — PyPI and npm versions stay in lock-
-step). Seven tools work (`lumo-wcag`, `lumo-theory`, `lumo-parity`,
-`lumo-source`, `lumo-audit`, `lumo-figma`, plus the `lumo-mcp` server),
-five install paths are live (`npx @onexeor/lumo init` · `npx skills add`
-· Claude plugin marketplace · `pipx install lumo-mobile` · git clone),
-and the MCP server exposes eight functions to every major AI client.
+**Status:** v0.0.10 published (alpha — PyPI and npm versions stay in lock-
+step). Eight tools work (`lumo-wcag`, `lumo-theory`, `lumo-parity`,
+`lumo-source`, `lumo-audit`, `lumo-figma`, `lumo-render`, plus the
+`lumo-mcp` server), five install paths are live (`npx @onexeor/lumo init`
+· `npx skills add` · Claude plugin marketplace · `pipx install lumo-mobile`
+· git clone), and the MCP server exposes the layout / audit / source /
+figma tools to every major AI client.
 
 Lumo helps mobile developers build polished, accessible UI by applying
 **Fitts**, **Hick**, **Gestalt**, and **Nielsen** alongside Apple HIG and
