@@ -5,7 +5,18 @@ All notable changes to Lumo are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and Lumo adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.0.10] — 2026-05-18
+## [0.1.0] — 2026-05-18
+
+**First minor release.** Up to 0.0.9 every release was a patch bump,
+which understated the scope — `lumo-source`, `lumo-audit`, `lumo-figma`
+were each genuine new features that deserved a minor under strict
+semver. We deferred the jump until there was a clear inflection point,
+and `lumo-render` is it: a new tool, a new module surface, a new
+honesty label slot, and the first cross-platform parity contract
+between Compose and SwiftUI render paths. From here on, new tools and
+new public APIs bump minor; bugfixes bump patch. (We jumped 0.0.10 →
+0.1.0 deliberately — 0.0.10 was the local working version that became
+0.1.0 at publish time.)
 
 The biggest gap in Lumo's accuracy story was the **layout JSON input**
 the cognitive-science tools (`lumo-theory`, `lumo-parity`) consume:

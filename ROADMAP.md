@@ -207,7 +207,7 @@ lumo/
      diff. Add a `figma.mapping` config only when a real user case
      demonstrates name-aware matching is materially better.
 7. **`lumo-render` — AST layout evaluator (Compose + SwiftUI)** ✅
-   shipped in v0.0.10.
+   shipped in v0.1.0.
    Walks the same tree-sitter AST `lumo-source` already produces, but
    instead of running drift checks it *evaluates* the layout: an
    offset-stack interpreter for `Column` / `Row` / `Box` (Compose) and
