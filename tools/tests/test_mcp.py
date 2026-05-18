@@ -11,6 +11,7 @@ from __future__ import annotations
 import pytest
 
 from lumo.mcp.server import (
+    lumo_audit_scan,
     lumo_parity_diff,
     lumo_source_check_compose,
     lumo_source_check_swiftui,
@@ -41,6 +42,7 @@ async def test_server_registers_all_tools() -> None:
         "lumo_parity_diff",
         "lumo_source_check_compose",
         "lumo_source_check_swiftui",
+        "lumo_audit_scan",
     }
 
 
@@ -235,3 +237,52 @@ def test_source_swiftui_wrapper_accepts_custom_scale() -> None:
     """
     via_mcp = lumo_source_check_swiftui(src, spacing_scale=[0, 13, 26])
     assert all(f["check"] != "off_scale_spacing" for f in via_mcp["findings"])
+
+
+# ============================================================================
+# audit wrapper must agree with the underlying API
+# ============================================================================
+
+
+def test_audit_scan_wrapper_returns_expected_keys(tmp_path: object) -> None:
+    # `tmp_path` is a pytest fixture — the function signature is `Path`,
+    # but we annotate it loosely here to keep the test module independent
+    # of pytest type stubs.
+    import os
+    from pathlib import Path as _P
+
+    root = _P(str(tmp_path))
+    (root / "Bad.kt").write_text(
+        '@Composable fun B() { Column(modifier = Modifier.padding(13.dp)) {} }',
+        encoding="utf-8",
+    )
+
+    via_mcp = lumo_audit_scan(str(root))
+
+    assert via_mcp["root"] == os.fspath(root.resolve())
+    assert via_mcp["files_scanned"] == 1
+    assert "scale_observations" in via_mcp
+    assert "counts_by_severity" in via_mcp
+    assert "findings" in via_mcp
+    # 13 should appear as an off-scale padding literal.
+    padding_obs = next(o for o in via_mcp["scale_observations"] if o["kind"] == "padding")
+    assert 13.0 in padding_obs["off_scale"]
+
+
+def test_audit_scan_wrapper_respects_exclude(tmp_path: object) -> None:
+    from pathlib import Path as _P
+
+    root = _P(str(tmp_path))
+    (root / "src").mkdir()
+    (root / "tests").mkdir()
+    (root / "src" / "keep.kt").write_text(
+        '@Composable fun K() { Column(modifier = Modifier.padding(13.dp)) {} }',
+        encoding="utf-8",
+    )
+    (root / "tests" / "skip.kt").write_text(
+        '@Composable fun S() { Column(modifier = Modifier.padding(13.dp)) {} }',
+        encoding="utf-8",
+    )
+
+    via_mcp = lumo_audit_scan(str(root), exclude=["tests/**"])
+    assert via_mcp["files_scanned"] == 1

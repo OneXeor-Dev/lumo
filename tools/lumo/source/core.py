@@ -849,3 +849,131 @@ def check_swiftui_file(
         spacing_scale=spacing_scale,
         radius_scale=radius_scale,
     )
+
+
+# ============================================================================
+# Literal collection for `lumo-audit` (whole-repo scale detection)
+# ============================================================================
+#
+# Audit needs to know what numeric padding / radius values actually appear
+# in the codebase, *regardless* of whether they pass the current scale.
+# That data answers: "what is your de-facto spacing scale?" — which is
+# strictly more useful than "this one file violates the configured scale".
+#
+# The honesty rule still applies: tokens and computed values are skipped.
+# Audit aggregates LITERALS only.
+
+
+@dataclass(frozen=True)
+class LiteralValue:
+    """A single hardcoded numeric literal from a Compose / SwiftUI source.
+
+    `kind` is the surface where the literal was seen — `"padding"`,
+    `"radius"`, or `"size"` — so audit can build separate frequency
+    tables per category without re-walking the AST.
+    """
+
+    file: str
+    line: int
+    column: int
+    kind: Literal["padding", "radius", "size"]
+    value: float
+    language: Literal["kotlin", "swift"]
+
+
+def iter_compose_literals(source: str, path: str = "<source>") -> Iterator[LiteralValue]:
+    """Yield every hardcoded dp/sp literal in a Compose source string.
+
+    Mirrors what `check_compose` already walks, but emits raw values
+    (including ones that are ON the scale) so audit can count them. Token
+    references (`MaterialTheme.spacing.md.dp`) are NOT yielded — the
+    honesty rule is preserved.
+    """
+    src = source.encode("utf-8")
+    parser = _kotlin_parser()
+    tree = parser.parse(src)
+    root = tree.root_node
+
+    # Padding + size from Modifier chains.
+    for name, arg_text, node in _iter_modifier_calls(root, src):
+        file_, line, col = _location(node, path)
+        if name in SIZE_MODIFIERS:
+            v = _parse_dp_literal(arg_text)
+            if v is not None:
+                yield LiteralValue(file_, line, col, "size", v, "kotlin")
+        elif name in PADDING_MODIFIERS:
+            stripped = arg_text.strip()
+            if "=" in stripped or "," in stripped:
+                continue  # named args / multi — skip per v1 limitation
+            v = _parse_dp_literal(stripped)
+            if v is not None:
+                yield LiteralValue(file_, line, col, "padding", v, "kotlin")
+
+    # Radii from RoundedCornerShape.
+    for node in _walk(root):
+        if node.type != "call_expression" or not node.children:
+            continue
+        callee = node.children[0]
+        if _node_text(callee, src).strip() != "RoundedCornerShape":
+            continue
+        full = _node_text(node, src)
+        paren_idx = full.find("(")
+        end_idx = full.rfind(")")
+        if paren_idx == -1 or end_idx <= paren_idx:
+            continue
+        inner = full[paren_idx + 1 : end_idx].strip()
+        if "," in inner or "=" in inner:
+            continue  # per-corner — skip
+        v = _parse_dp_literal(inner)
+        if v is None:
+            continue
+        file_, line, col = _location(node, path)
+        yield LiteralValue(file_, line, col, "radius", v, "kotlin")
+
+
+def iter_swiftui_literals(source: str, path: str = "<source>") -> Iterator[LiteralValue]:
+    """Yield every hardcoded pt literal in a SwiftUI source string.
+
+    Padding (`.padding(N)` and `.padding(<edge>, N)`), frame dimensions
+    (`.frame(width: N, height: N)`), and cornerRadius (`.cornerRadius(N)`).
+    Token references (`Theme.spacing.md`) are skipped.
+    """
+    src = source.encode("utf-8")
+    parser = _swift_parser()
+    tree = parser.parse(src)
+    root = tree.root_node
+
+    for name, value_args, node in _iter_swiftui_modifier_calls(root, src):
+        file_, line, col = _location(node, path)
+        args = [c for c in value_args.children if c.type == "value_argument"]
+
+        if name in SWIFTUI_PADDING_MODIFIERS:
+            for a in args:
+                value_node = _swift_value_argument_value(a, src)
+                if value_node is None or value_node.type == "prefix_expression":
+                    continue
+                v = _swift_pt_value(value_node, src)
+                if v is not None:
+                    yield LiteralValue(file_, line, col, "padding", v, "swift")
+
+        elif name in SWIFTUI_SIZE_MODIFIERS:
+            for a in args:
+                label = _swift_value_argument_label(a, src)
+                if label not in ("width", "height"):
+                    continue
+                value_node = _swift_value_argument_value(a, src)
+                if value_node is None:
+                    continue
+                v = _swift_pt_value(value_node, src)
+                if v is not None:
+                    yield LiteralValue(file_, line, col, "size", v, "swift")
+
+        elif name in SWIFTUI_RADIUS_MODIFIERS:
+            if len(args) != 1:
+                continue
+            value_node = _swift_value_argument_value(args[0], src)
+            if value_node is None:
+                continue
+            v = _swift_pt_value(value_node, src)
+            if v is not None:
+                yield LiteralValue(file_, line, col, "radius", v, "swift")

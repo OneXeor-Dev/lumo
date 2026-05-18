@@ -102,12 +102,13 @@ jobs:
           python -m venv /tmp/e2e-venv
           /tmp/e2e-venv/bin/pip install dist/*.whl
 
-      - name: All five console scripts exist
+      - name: All six console scripts exist
         run: |
           test -x /tmp/e2e-venv/bin/lumo-wcag
           test -x /tmp/e2e-venv/bin/lumo-theory
           test -x /tmp/e2e-venv/bin/lumo-parity
           test -x /tmp/e2e-venv/bin/lumo-source
+          test -x /tmp/e2e-venv/bin/lumo-audit
           test -x /tmp/e2e-venv/bin/lumo-mcp
 
       - name: lumo-wcag check exits non-zero on a known-fail pair
@@ -165,6 +166,19 @@ jobs:
           echo "$out" | grep -q 'hardcoded_color'
           echo "$out" | grep -q 'off_scale_radius'
           ! echo "$out" | grep -q 'Color("brandPrimary")'
+
+      - name: lumo-audit aggregates across the examples/ tree
+        run: |
+          out="$(/tmp/e2e-venv/bin/lumo-audit scan --root examples || true)"
+          echo "$out"
+          # examples/ contains source_bad_compose.kt + source_bad_swiftui.swift —
+          # both have one finding per category. The aggregate must show
+          # both undersized findings (count of 2) and the off-scale radius
+          # entries that anchor files plant.
+          echo "$out" | grep -q 'Files scanned'
+          echo "$out" | grep -q '`undersized_tap_target`: 2'
+          echo "$out" | grep -q 'Measured scale'
+          echo "$out" | grep -q 'Off-scale values:'
 
   installer:
     name: Node installer

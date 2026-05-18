@@ -15,16 +15,22 @@ so downstream consumers (CLI, MCP, audit aggregator) can mix all three.
 
 from lumo.source.core import (
     Category,
+    LiteralValue,
     SourceFinding,
     SourceReport,
     check_compose,
     check_swiftui,
+    iter_compose_literals,
+    iter_swiftui_literals,
 )
 
 __all__ = [
     "Category",
+    "LiteralValue",
     "SourceFinding",
     "SourceReport",
     "check_compose",
     "check_swiftui",
+    "iter_compose_literals",
+    "iter_swiftui_literals",
 ]

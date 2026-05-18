@@ -50,9 +50,9 @@ When running inside an MCP-aware client (Cursor, Continue, Aider, Goose,
 Zed, Codex, or Claude Code with MCP enabled), the same tools are
 also exposed as MCP functions: `lumo_wcag_check`, `lumo_wcag_fix`,
 `lumo_theory_check`, `lumo_parity_diff`, `lumo_source_check_compose`,
-`lumo_source_check_swiftui`. Prefer the MCP function over spawning a
-Bash subprocess when available — the structured response is already
-JSON and the user does not see noisy command output.
+`lumo_source_check_swiftui`, `lumo_audit_scan`. Prefer the MCP function
+over spawning a Bash subprocess when available — the structured response
+is already JSON and the user does not see noisy command output.
 
 ### `lumo-wcag` — WCAG contrast validator + OKLCH auto-correct
 
@@ -374,6 +374,110 @@ FOUND  3 findings (1 high, 1 low, 1 medium) in BadScreen.kt
 
 Exit codes: `0` clean, `1` findings present.
 
+### `lumo-audit` — whole-repository design-system audit
+
+When to invoke:
+
+- The user asks for a project-wide review ("audit the whole repo",
+  "what's the worst drift in this codebase").
+- The user wants to discover the *measured* spacing / radius scale of
+  their project — what numbers do designers actually use, vs. what the
+  config claims.
+- Before sprint planning a refactor: which checks fire most often, in
+  which modules, in which language.
+
+What this tool does:
+
+- Walks every `.kt` / `.kts` / `.swift` file under `--root`, runs
+  `lumo-source` per file, and aggregates findings.
+- Also collects every hardcoded numeric literal for padding, radius,
+  and size (separately) and surfaces the top frequencies. This answers
+  "what is your *measured* scale?" — strictly more useful than "this
+  one file violates the configured scale."
+- Always skips noisy / generated directories — `.git`, `build`,
+  `.gradle`, `node_modules`, `Pods`, `DerivedData`, `dist`, `out`,
+  `__pycache__`, `.venv`, `venv`. These are non-negotiable; pass
+  `--exclude` for additional project-specific globs.
+
+Honesty rule (same as `lumo-source`):
+
+- Only **hardcoded literals** appear in the scale tables. Token
+  references (`MaterialTheme.spacing.md`, `LocalDimensions.current.md`,
+  `Theme.spacing.md`) are intentionally invisible to the audit, because
+  the audit is about catching drift away from tokens — not against them.
+
+What this tool **does not** do:
+
+- It does not propose changes. It surfaces measured data; the human
+  decides what scale to standardise on, what to refactor, what to
+  keep as a deliberate exception.
+- It does not extract design tokens from `strings.xml` / `Assets.xcassets`
+  yet. WCAG checks on resource-defined colours land in a later phase.
+- It does not respect `.gitignore` — instead, it has a built-in skip
+  list (above) plus user-supplied `--exclude` globs. A `.lumoignore`
+  format may land later if there's demand.
+
+Command:
+
+```bash
+# Default scan — uses the Material / HIG spacing scale.
+lumo-audit scan --root path/to/repo
+
+# With a project-specific config (recommended for ongoing audits).
+lumo-audit scan --root . --config lumo.config.json
+
+# Stack additional excludes on top of the always-skipped directories.
+lumo-audit scan --root . --exclude "tests/**" --exclude "samples/**"
+
+# Override the spacing / radius scale from the CLI.
+lumo-audit scan --root . --scale 0,4,8,12,16,24,32 --radius-scale 0,8,16
+
+# Machine-readable for CI / further processing.
+lumo-audit scan --root . --json
+
+# Persist a markdown summary in addition to stdout.
+lumo-audit scan --root . --out lumo-audit/report.md
+```
+
+Configuration (an `audit:` section inside `lumo.config.json`):
+
+```json
+{
+  "audit": {
+    "spacing_scale": [0, 4, 8, 12, 16, 20, 24, 32, 40, 48, 56, 64],
+    "radius_scale":  [0, 4, 8, 12, 16, 24, 28, 32],
+    "exclude": ["samples/**", "**/generated/**"],
+    "top_n_values": 15
+  }
+}
+```
+
+Worked example — running against the bundled `examples/` directory:
+
+```bash
+$ lumo-audit scan --root examples
+# Lumo audit — /…/examples
+- Files scanned: **2**
+- By language: 1 kotlin, 1 swift
+- Total findings: **6**
+
+## Findings by check
+- `hardcoded_color`: 2
+- `off_scale_radius`: 2
+- `undersized_tap_target`: 2
+
+## Measured scale
+### radius — 4 literal occurrences
+| value | count |
+|---|---|
+| 12.0      | 2 |
+| 13.0 ⚠   | 2 |
+
+Off-scale values: `13.0` (⚠ above).
+```
+
+Exit codes: `0` no findings, `1` findings present.
+
 ## Decision Tree
 
 | User request shape | Action |
@@ -388,6 +492,7 @@ Exit codes: `0` clean, `1` findings present.
 | "Does my SwiftUI match the design tokens?" | `lumo-parity diff` with `--config`. Even a single-platform check benefits from design-system validation. |
 | "Review this Compose file for design-system drift" / "are there hardcoded colours / off-scale paddings / undersized buttons in this `.kt`?" | `lumo-source check --file <path>`. Don't ask the user to translate the file into a layout JSON first — this tool reads source directly. |
 | "Review this SwiftUI file" / "audit this `.swift`" | `lumo-source check --file <path>` (language auto-detected by extension). Apple HIG min tap target = 44pt — Lumo uses that, not the Compose 48dp. |
+| "Audit the whole project" / "what is our actual spacing scale" / "where are the drift hotspots" | `lumo-audit scan --root <path>`. Pass `--config lumo.config.json` for project-specific scales / excludes. The measured-scale section answers de-facto scale questions that no per-file tool can. |
 
 ## Output Format Contract
 

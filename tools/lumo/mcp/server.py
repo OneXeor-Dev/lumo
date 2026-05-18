@@ -24,6 +24,7 @@ from typing import Any, Literal
 
 from mcp.server.fastmcp import FastMCP
 
+from lumo.audit.core import AuditConfig, scan_repo
 from lumo.parity.core import DesignSystemConfig, diff
 from lumo.source.core import (
     DEFAULT_RADIUS_SCALE_DP,
@@ -357,6 +358,87 @@ def lumo_source_check_swiftui(
         "counts_by_severity": report.counts_by_severity,
         "counts_by_category": report.counts_by_category,
         "findings": [asdict(f) for f in report.findings],
+    }
+
+
+# ============================================================================
+# Tool 7 — audit_scan
+# ============================================================================
+
+
+@server.tool()
+def lumo_audit_scan(
+    root: str,
+    spacing_scale: list[float] | None = None,
+    radius_scale: list[float] | None = None,
+    exclude: list[str] | None = None,
+    top_n_values: int = 15,
+) -> dict[str, Any]:
+    """Whole-repository design-system audit for Compose + SwiftUI.
+
+    Walks every `.kt` / `.kts` / `.swift` file under `root`, runs the
+    `lumo.source` checks per file, and aggregates two views:
+
+      1. Drift hotspots — counts of findings by check, category,
+         severity, and language. Use this to prioritise refactors.
+
+      2. Measured scale — frequency tables of every hardcoded padding /
+         radius / size literal in the codebase. Compare the top values
+         against your configured scale to see actual drift (not just
+         rule violations on individual lines).
+
+    Hardcoded skip directories (`.git`, `build`, `node_modules`, `Pods`,
+    `DerivedData`, `.gradle`, `dist`, `out`, etc.) are always excluded
+    so the scan stays fast and signal-rich. Pass additional POSIX-style
+    globs in `exclude` for project-specific filters.
+
+    Token references (`MaterialTheme.spacing.md`, `Theme.colours.brand`,
+    `Color("brandPrimary")`) are intentionally invisible to the audit —
+    we count *hardcoded* literals only. Same honesty rule as `lumo-source`.
+
+    Args:
+        root: Absolute path to the repo root to scan.
+        spacing_scale: Optional spacing scale in dp/pt. Defaults to the
+                       Material 3 / HIG-flavoured scale.
+        radius_scale: Optional radius scale in dp/pt. Defaults to Material 3.
+        exclude: Extra POSIX-style globs (relative to `root`) to skip
+                 on top of the always-skipped directories.
+        top_n_values: How many top-frequency values per kind to surface.
+
+    Returns:
+        Dict with `root`, `files_scanned`, `files_with_findings`,
+        `total_findings`, `counts_by_*`, `findings`, and
+        `scale_observations`.
+    """
+    config = AuditConfig(
+        spacing_scale=tuple(spacing_scale) if spacing_scale else DEFAULT_SPACING_SCALE_DP,
+        radius_scale=tuple(radius_scale) if radius_scale else DEFAULT_RADIUS_SCALE_DP,
+        extra_excludes=tuple(exclude) if exclude else (),
+        top_n_values=top_n_values,
+    )
+    report = scan_repo(root, config=config)
+    return {
+        "root": report.root,
+        "files_scanned": report.files_scanned,
+        "files_with_findings": report.files_with_findings,
+        "total_findings": report.total_findings,
+        "counts_by_severity": report.counts_by_severity,
+        "counts_by_category": report.counts_by_category,
+        "counts_by_check": report.counts_by_check,
+        "counts_by_language": report.counts_by_language,
+        "findings": [asdict(f) for f in report.findings],
+        "scale_observations": [
+            {
+                "kind": obs.kind,
+                "total_literals": obs.total_literals,
+                "values_by_frequency": [
+                    {"value": v, "count": c} for v, c in obs.values_by_frequency
+                ],
+                "on_scale": list(obs.on_scale),
+                "off_scale": list(obs.off_scale),
+            }
+            for obs in report.scale_observations
+        ],
     }
 
 

@@ -1,5 +1,14 @@
 {
   "sizing": {
     "primary_button_height": 56
+  },
+  "audit": {
+    "spacing_scale": [0, 4, 8, 12, 16, 20, 24, 32, 40, 48, 56, 64],
+    "radius_scale":  [0, 4, 8, 12, 16, 24, 28, 32],
+    "exclude": [
+      "samples/**",
+      "**/generated/**"
+    ],
+    "top_n_values": 15
   }
 }
