@@ -8,9 +8,11 @@
 
 ## Problem
 
-Lumo's three v0.1 tools (`lumo-theory`, `lumo-parity`, `lumo-wcag`) consume
-a layout JSON or a colour pair and return findings. The catch is **where
-the layout JSON comes from**. The honesty rule is:
+The two layout-driven tools (`lumo-theory`, `lumo-parity`) consume a
+layout JSON and return findings; `lumo-source` and `lumo-audit` work
+directly off `.kt` / `.swift` source. The remaining accuracy ceiling is
+**where the layout JSON comes from for the first two tools**. The
+honesty rule is:
 
 | Source label | Meaning | Trust |
 |---|---|---|
@@ -18,12 +20,16 @@ the layout JSON comes from**. The honesty rule is:
 | `code-estimated` | parsed statically from Compose / SwiftUI source | medium |
 | `description-estimated` | inferred from a screenshot / NL prompt | low |
 
-In v0.1, **the user hand-builds the JSON** or has the LLM build it from
-code or a screenshot. Both produce `code-estimated` or
-`description-estimated` confidence — never `measured`. That ceiling is
-the single biggest accuracy gap in the project.
+Today **the user hand-builds the JSON** for `lumo-theory` /
+`lumo-parity`, or has the LLM build it from code or a screenshot. Both
+produce `code-estimated` or `description-estimated` confidence — never
+`measured`. AST tooling (`lumo-source`, `lumo-audit`) closed part of
+this gap by giving deterministic answers for source-level questions
+(off-scale literals, undersized tap targets in code), but it cannot
+recover runtime layout: theme tokens, `fillMaxWidth`, dynamic type,
+device pixel density.
 
-Phase 2 should close it.
+Snapshot input closes the rest.
 
 ## Two roads we already discussed
 
@@ -214,21 +220,54 @@ fixtures (the same screens we use in `examples/`).
    we should *not* emit pixels. Verify on real device simulators with
    different scales before shipping.
 
-## Decision: build order in Phase 2
+## Decision: build order in Phase 2 (revised 2026-05-18)
 
-Original ROADMAP listed `snapshot_input` as Phase 2 tool #5, before
-`figma_sync` and `codebase_audit`. This design doc confirms that
-ordering for a different reason than the original ROADMAP gave:
+This design doc originally argued for `snapshot_input` → `figma_sync` →
+`codebase_audit`, framing the AST tool as a fallback for users without
+snapshot tests. Actual execution went the other way: AST shipped first
+because (a) `tree-sitter` parsing is purely additive and ships without
+new external integrations, (b) it unblocks every other Phase 2 tool by
+giving us a deterministic way to count what's in the code, and (c) it
+delivers immediate user value — a working CLI plus an MCP tool — within
+one release.
 
-- **`snapshot_input` first** (this doc): unlocks `source: "measured"`
-  for every existing check. Pure value-add, no rewrite of existing
-  tools.
-- **`figma_sync` second**: layers on top of measured coordinates —
-  diff Figma against the same `source: "measured"` JSON the capture
-  library produces.
-- **`codebase_audit` third**: the AST tool finally lands, but as a
-  *fallback* for users without snapshot tests, not as the primary
-  measurement source.
+The current Phase 2 order is therefore:
 
-This reorder makes the AST tool's role much smaller: not the source of
-truth, just the polyfill.
+- **`lumo-source` first** (v0.0.3 Compose, v0.0.4 SwiftUI) — AST checks
+  for hardcoded literals on individual files. Always available.
+- **`lumo-audit` second** (v0.0.7) — whole-repo aggregator on top of
+  `lumo-source`. Produces the measured-scale frequency table that this
+  doc once expected snapshot tests would surface, but cheaper: no
+  test-suite integration, runs on any repo. Honesty rule means it
+  measures literals only, not theme references.
+- **`figma_sync` third** (next) — Figma REST API → diff against the
+  measured scale `lumo-audit` already produces.
+- **`snapshot_input` fourth** — capture libraries for Roborazzi and
+  swift-snapshot-testing. Still the highest-confidence source of layout
+  data (`source: "measured"` vs. `code-estimated` from the AST), but no
+  longer load-bearing for the basic "what is my scale?" question — that
+  one is already answered by `lumo-audit`.
+
+What this design doc still gets right:
+
+- The capture-library shape (Kotlin annotation + Swift extension that
+  walks the rendered view tree and writes Lumo-schema JSON next to the
+  bitmap) is unchanged. Snapshot tests really do not emit coordinate
+  JSON out of the box; this is still the right way to extract it.
+- Roborazzi-before-Paparazzi is still the right call for Android.
+- The honesty label hierarchy (`measured` > `code-estimated` >
+  `description-estimated`) is unchanged; what changed is which tool
+  emits which label.
+
+What this design doc got wrong:
+
+- Framing AST as "polyfill" undersold it. With `lumo-audit` aggregating
+  AST data across a repo, the "measured scale" question is fully
+  answered without any snapshot-test infrastructure. Snapshot input
+  becomes a *precision upgrade* for layout coordinates (Fitts distance
+  in pixels, reach zones in real screen coords), not the primary path
+  to design-system data.
+- The original ordering assumed `figma_sync` would consume
+  `source: "measured"` JSON. It will probably consume **both** —
+  snapshot JSON for layout, audit output for scale — and the value is
+  in the diff, not in either input being canonical.

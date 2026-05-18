@@ -22,9 +22,15 @@ These are settled. Do not re-litigate without strong cause.
 - Tools language: **Python** (settled). Reason: AST parsing for Compose / SwiftUI in Phase 2 needs `tree-sitter` and OKLCH math needs `numpy`. npm wrapper installs Python deps under the hood, same pattern as ruff / black / pyright.
 - GitHub org: **OneXeor** (settled).
 
-## Open decisions (resolve before publishing v0.1)
+## Resolved post-launch
 
-- npm package name: still need to confirm `lumo` is available on the npm registry, or fall back to `@onexeor/lumo`.
+- **npm package name:** `@onexeor/lumo`. Top-level `lumo` was taken on
+  the npm registry by an unrelated WebGL library — the scoped name is
+  permanent.
+- **PyPI package name:** `lumo-mobile`. `lumo` on PyPI is also taken.
+- **Version sync:** PyPI `lumo-mobile` and npm `@onexeor/lumo` are
+  bumped together to the same number on every release, even when only
+  one side changes code. Locked since v0.0.6.
 
 ---
 
@@ -105,7 +111,7 @@ Goal: `npx @onexeor/lumo init` works end-to-end with four demonstrable tools (wc
 | 1 | `wcag_validator` | ✅ Shipped | W3C luminance formula + OKLCH auto-correct that preserves chroma and hue. 28 tests against WebAIM / Material / Apple anchors. |
 | 2 | `theory_check` | ✅ Shipped | Fitts (undersized + relative difficulty for primary), Hick overload, Gestalt proximity, reach rules. 17 tests. Nielsen heuristics intentionally not in the tool (not reliably numeric). |
 | 3 | `platform_parity` | ✅ Shipped | Android (dp) vs iOS (pt) diff. Component presence, sizing diff, design-system token validation. Platform-specific defaults whitelisted (44 pt vs 48 dp etc.). 14 tests. |
-| 4 | `mcp_server` | ✅ Shipped | Stdio MCP server (`lumo-mcp`) exposing all three tools to Claude Code, Cursor, Continue, Aider, Goose, Zed, Codex. 8 tests covering registration + wrapper parity with the underlying Python API. |
+| 4 | `mcp_server` | ✅ Shipped | Stdio MCP server (`lumo-mcp`) exposing every Lumo tool to Claude Code, Cursor, Continue, Aider, Goose, Zed, Codex. As of v0.0.7 it registers 7 functions (`lumo_wcag_check`, `lumo_wcag_fix`, `lumo_theory_check`, `lumo_parity_diff`, `lumo_source_check_compose`, `lumo_source_check_swiftui`, `lumo_audit_scan`) with registration + wrapper-parity tests for each. |
 
 ### Distribution (five install paths, all wired up)
 
@@ -129,6 +135,7 @@ needs to read them.
 lumo/
 ├── README.md             # user-facing
 ├── ROADMAP.md            # this file
+├── CHANGELOG.md          # release notes (PyPI + npm)
 ├── skill/
 │   └── SKILL.md          # main Claude Code entrypoint
 ├── tools/
@@ -136,10 +143,13 @@ lumo/
 │   └── lumo/
 │       ├── wcag/         # ✅ tool 1
 │       ├── theory/       # ✅ tool 2
-│       └── parity/       # ✅ tool 3
+│       ├── parity/       # ✅ tool 3
+│       ├── source/       # ✅ tool 4 — Compose + SwiftUI AST checks
+│       ├── audit/        # ✅ tool 5 — whole-repo aggregator
+│       └── mcp/          # ✅ MCP server (7 functions)
 ├── data/                 # placeholder — rules still inline
-├── examples/             # ✅ layout pairs + lumo.config.json
-└── installer/            # ⏳ npm CLI (next up)
+├── examples/             # ✅ layout pairs + .kt / .swift anchors + lumo.config.json
+└── installer/            # ✅ @onexeor/lumo on npm
 ```
 
 ---
@@ -193,7 +203,7 @@ lumo/
 
 - Expand `platform_rules` to full HIG + Material catalogue.
 - Expand `parity_table` to 150+ pairs.
-- Per-project memory store (populated by `codebase_audit` after user confirmation).
+- Per-project memory store (populated by `lumo-audit` after user confirmation).
 
 ### Content
 
@@ -207,8 +217,8 @@ lumo/
 
 ### Tools
 
-7. Visual diff: render Compose preview + SwiftUI snapshot → pixel/structural diff.
-8. Per-project memory recall — skill automatically pulls learned patterns into reviews.
+10. Visual diff: render Compose preview + SwiftUI snapshot → pixel/structural diff.
+11. Per-project memory recall — skill automatically pulls learned patterns into reviews.
 
 ### Distribution
 

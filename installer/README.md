@@ -18,7 +18,7 @@ lumo doctor                               # verify every Lumo piece is in place
 lumo uninstall --ai claude                # remove the skill (Python tools stay)
 ```
 
-Supported AI clients in v0.1:
+Supported AI clients:
 
 - **Claude Code** — copies the skill into `~/.claude/skills/lumo/` and
   registers the MCP server in `claude_desktop_config.json`
@@ -34,8 +34,9 @@ Under the hood the installer:
 1. Locates a Python 3.10+ interpreter and creates a Lumo-owned venv at
    `~/.lumo/venv` so your system Python stays clean.
 2. `pip install`s the `lumo-mobile` package from PyPI into that venv.
-   The CLIs (`lumo-wcag`, `lumo-theory`, `lumo-parity`, `lumo-mcp`)
-   become available at absolute paths the MCP configs point to.
+   The CLIs (`lumo-wcag`, `lumo-theory`, `lumo-parity`, `lumo-source`,
+   `lumo-audit`, `lumo-mcp`) become available at absolute paths the MCP
+   configs point to.
 3. Copies the `SKILL.md` bundle into the chosen client's skill directory.
 4. Merges a `{ "mcpServers": { "lumo": { "command": "..." } } }` block
    into the client's MCP config — non-destructive, backs up the file once
