@@ -50,10 +50,10 @@ When running inside an MCP-aware client (Cursor, Continue, Aider, Goose,
 Zed, Codex, or Claude Code with MCP enabled), the same tools are
 also exposed as MCP functions: `lumo_wcag_check`, `lumo_wcag_fix`,
 `lumo_theory_check`, `lumo_parity_diff`, `lumo_source_check_compose`,
-`lumo_source_check_swiftui`, `lumo_audit_scan`, `lumo_figma_diff`.
-Prefer the MCP function over spawning a Bash subprocess when available
-— the structured response is already JSON and the user does not see
-noisy command output.
+`lumo_source_check_swiftui`, `lumo_audit_scan`, `lumo_figma_diff`,
+`lumo_render_compose`, `lumo_render_swiftui`. Prefer the MCP function
+over spawning a Bash subprocess when available — the structured
+response is already JSON and the user does not see noisy command output.
 
 ### `lumo-wcag` — WCAG contrast validator + OKLCH auto-correct
 
@@ -126,7 +126,7 @@ Layout JSON schema:
 ```json
 {
   "screen":  { "width": 411, "height": 891, "unit": "dp" },
-  "source":  "measured | code-estimated | description-estimated",
+  "source":  "measured | ast-resolved | code-estimated | description-estimated",
   "elements": [
     {
       "id": "btn_continue",
@@ -144,21 +144,31 @@ Layout JSON schema:
 - `weight` ∈ `primary | secondary | equal` (default `equal`)
 - `group` is a free-form string used by Hick (equal-weight overload) and
   Gestalt proximity.
-- `source` reports honesty: `measured` means the coordinates came from a
-  real device or a snapshot-testing framework — Espresso, XCUITest,
-  Compose `onGloballyPositioned`, SwiftUI `GeometryReader`, **Paparazzi**
-  (Compose snapshot tests by Cash App / JetBrains), or
-  `xcodebuild test --only-testing` with `XCTAttachment` /
-  `swift-snapshot-testing`. `code-estimated` means the layout was parsed
-  from source code statically (theme tokens, `fillMaxWidth`, dynamic
-  type — anything that resolves at runtime — is a guess).
-  `description-estimated` means the layout was built from a screenshot
-  description or natural-language prompt. The tool propagates this value
-  to every finding so the user can weigh confidence.
+- `source` reports honesty, ordered from most to least trustworthy:
+    - `measured` — coordinates came from a real device or a
+      snapshot-testing framework (Espresso, XCUITest, Compose
+      `onGloballyPositioned`, SwiftUI `GeometryReader`, Roborazzi,
+      Paparazzi, `swift-snapshot-testing` with a capture helper).
+    - `ast-resolved` — output of `lumo-render compose` / `lumo-render
+      swiftui`. A deterministic offset-stack evaluator walked the
+      tree-sitter AST and derived the coordinate. Higher trust than
+      `code-estimated` because no LLM was involved and the evaluator
+      refuses to invent values it cannot derive (tokens / runtime
+      expressions / unknown views become `ast-unresolved` instead).
+    - `code-estimated` — the layout was hand-translated from source
+      code (by the model, statically). Theme tokens, `fillMaxWidth`,
+      dynamic type, anything that resolves at runtime is a guess.
+    - `description-estimated` — the layout was built from a
+      screenshot description or natural-language prompt. Lowest
+      confidence.
+  The tool propagates this value to every finding so the user can
+  weigh confidence.
 
-When you (the model) construct a layout from a screenshot or from Compose
-/ SwiftUI source code, set `source` to the matching honest label. Do not
-default to `measured` — that would falsely inflate confidence.
+When you (the model) construct a layout, set `source` to the matching
+honest label. Do not default to `measured` — that would falsely inflate
+confidence. **Prefer `lumo-render` over hand-translation**: it produces
+`ast-resolved` output deterministically, so your follow-up
+`lumo-theory` / `lumo-parity` runs are stronger.
 
 Worked example — a deliberately bad screen:
 
@@ -314,8 +324,11 @@ What this tool **does not** do:
 - It does not flag single-dimension `.frame(width: N)` on SwiftUI —
   ambiguous in isolation (might be inside a fixed-height row). Both
   width and height must be literal AND undersized to flag.
-- It does not run a project-wide scan (use the upcoming `lumo-audit`
-  for that; this tool is per-file).
+- It does not run a project-wide scan (use `lumo-audit` for that; this
+  tool is per-file).
+- It does not produce layout coordinates from source — that's
+  `lumo-render`'s job. `lumo-source` answers "what is wrong with this
+  code"; `lumo-render` answers "where do the elements end up on screen".
 
 Command:
 
@@ -374,6 +387,162 @@ FOUND  3 findings (1 high, 1 low, 1 medium) in BadScreen.kt
 ```
 
 Exit codes: `0` clean, `1` findings present.
+
+### `lumo-render` — AST layout evaluator (Compose + SwiftUI)
+
+When to invoke:
+
+- The user wants `lumo-theory` or `lumo-parity` checks on a real screen
+  but has not (and will not) hand-build a layout JSON.
+- The user pastes a `.kt` / `.swift` file and asks "what does this
+  actually lay out as" — Fitts distances, reach zones, button
+  positions, parity between Compose and SwiftUI versions.
+- A KMP team needs both an Android and an iOS layout JSON from the
+  matching source files, ready to feed `lumo-parity diff --from`.
+- The user is preparing a screen for visual review and wants
+  coordinates without spinning up a build / emulator / snapshot test.
+
+What this tool does:
+
+- Walks the same `tree-sitter-{kotlin,swift}` AST `lumo-source`
+  already uses, but instead of running drift checks it *evaluates*
+  the layout: an offset-stack interpreter handles container nesting
+  + the common modifier transforms and produces `(x, y, w, h)` for
+  every element that can be derived statically.
+- **Compose:** `Column` / `Row` / `Box` / `Card` / `Surface`
+  containers; `Text`, `Button` (and outlined / text / elevated /
+  tonal variants), `IconButton` (and filled / tonal / outlined
+  variants), `Icon`, `Image`, `FloatingActionButton` (and small /
+  large / extended), `Spacer` atoms; `padding(...)` (uniform + named
+  horizontal/vertical/sides), `size`/`width`/`height`,
+  `fillMaxWidth/Height/Size`, `offset(x, y)`, `weight(N)` two-pass,
+  `wrapContentSize`, `testTag("id")`.
+- **SwiftUI:** `VStack` / `HStack` / `ZStack` / `Group` containers;
+  `Text`, `Button`, `Image`, `Label`, `Spacer`, `Rectangle`,
+  `Circle`, `RoundedRectangle`, `Divider`, `Toggle`,
+  `NavigationLink`, `Link` atoms; `.padding()` in every form
+  (no-arg / value / edge enum + value), `.frame(width:height:)`,
+  `.frame(maxWidth: .infinity)` as fill-max marker, `.offset(x:y:)`,
+  `.accessibilityIdentifier("id")`. `Spacer()` with no `.frame` acts
+  as axis-flex (same two-pass rule as Compose `weight`).
+- Output is the **same Lumo layout JSON** schema `lumo-theory` and
+  `lumo-parity` consume. Pipeline:
+
+  ```
+  lumo-render compose --file Screen.kt --out screen.android.json
+  lumo-render swiftui --file Screen.swift --out screen.ios.json
+  lumo-theory check --from .
+  lumo-parity diff  --from .
+  ```
+
+Honesty hierarchy — every element carries one of these labels in its
+`source` field:
+
+```
+measured > ast-resolved > code-estimated > description-estimated
+```
+
+- `ast-resolved` — value came from a static AST evaluation of known
+  layout rules. Higher trust than `code-estimated` ("the LLM guessed
+  numbers from reading code") because the evaluator is deterministic
+  and refuses to invent values it cannot derive.
+- `ast-unresolved` — token reference (`MaterialTheme.spacing.md`,
+  `Theme.dim.btn`), unknown composable / view, runtime expression,
+  or a descendant of an unresolved container. Carries a `reason`
+  field and **no coordinates** — we never emit fake numbers.
+- Sibling elements are NOT tainted by an unresolved sibling. Only
+  descendants of an unresolved CONTAINER inherit the unresolved
+  status, because their absolute coordinates would otherwise be
+  built on a guessed parent offset.
+
+Honesty rule (locked):
+
+- We **never invent coordinates**. The evaluator handles common
+  static cases; anything that needs an actual layout engine (lazy
+  lists, complex constraints, animations, state-driven sizing,
+  dynamic type, `Theme.spacing.*` token resolution) is deliberately
+  not modeled — we mark those elements `ast-unresolved` with a
+  reason rather than guess.
+- This is the same rule `lumo-source` already enforces, propagated
+  through the evaluator: nothing comes out that the AST cannot
+  defend.
+
+What this tool **does not** do:
+
+- It does not resolve theme tokens. `Modifier.padding(Theme.spacing.md)`
+  or `.padding(Theme.spacing.md)` mark every descendant as
+  `ast-unresolved` — those values exist only at runtime.
+- It does not handle conditional rendering, lazy lists, or
+  state-driven sizing. Those screens will have low coverage and
+  many `ast-unresolved` entries — that is the correct result.
+- It does not replace `snapshot_input` (Phase 3) for the last ~20%
+  of accuracy. When measured coordinates are critical (final
+  parity before ship, dynamic-type review), use real snapshot
+  tests instead.
+- On Compose, `.weight` siblings are resolved against a known parent
+  extent — if the parent's height/width is itself a token, the
+  weighted children are `ast-unresolved`.
+
+Command:
+
+```bash
+# Compose — render the first @Composable in the file
+lumo-render compose --file Screen.kt
+
+# Pick a specific @Composable by name
+lumo-render compose --file Screen.kt --target LoginScreen
+
+# Override the root screen size (default 360x800)
+lumo-render compose --file Screen.kt --screen-width 411 --screen-height 891
+
+# Machine-readable JSON to stdout
+lumo-render compose --file Screen.kt --json
+
+# Or write JSON to a file (the natural input for lumo-theory --from)
+lumo-render compose --file Screen.kt --out screen.android.json
+
+# Read from stdin
+lumo-render compose --file - < Screen.kt
+
+# SwiftUI — same flag shape
+lumo-render swiftui --file LoginView.swift --target LoginView
+lumo-render swiftui --file LoginView.swift --out screen.ios.json
+```
+
+Worked example — same logical screen, two platforms:
+
+```bash
+$ lumo-render compose --file Login.kt --screen-width 411 --screen-height 891
+screen 411x891dp  elements=2  resolved=2  unresolved=0  coverage=100%
+  title                        text             x=16.0 y=16.0 w=0.0   h=20.0
+  cta                          primary_action   x=16.0 y=44.0 w=379.0 h=48.0
+
+$ lumo-render swiftui --file Login.swift --screen-width 411 --screen-height 891
+screen 411x891pt  elements=2  resolved=2  unresolved=0  coverage=100%
+  title                        text             x=16.0 y=16.0 w=0.0   h=20.0
+  cta                          primary_action   x=16.0 y=44.0 w=379.0 h=48.0
+```
+
+Both platforms produce matching topology — `title` at (16, 16) and
+`cta` at (16, 44) with 379×48. That parity is the entire point: feed
+both outputs to `lumo-parity diff --from .` and the only flags you'll
+get are the deliberate platform whitelist (e.g. 48dp button vs 44pt
+HIG minimum on a back nav).
+
+Worked example — honest unresolved output:
+
+```bash
+$ lumo-render compose --file ThemedScreen.kt
+screen 360x800dp  elements=1  resolved=0  unresolved=1  coverage=0%
+  title  text  UNRESOLVED — padding(MaterialTheme.spacing.md) is a token
+```
+
+No fake coordinates, no silent fallback to 16dp because Material's
+default *happens* to be 16. The element is marked unresolved with
+the exact reason; downstream tools (`lumo-theory --from`) skip it.
+
+Exit codes: `0` if anything was rendered (even all unresolved is a
+valid result), `2` if the file had no `@Composable` / SwiftUI View.
 
 ### `lumo-audit` — whole-repository design-system audit
 
@@ -597,13 +766,14 @@ one value crosses the threshold, `2` on argument / API errors.
 | "Is `#ABC123` on `#FFFFFF` accessible?" | `lumo-wcag check` with that pair. |
 | "Fix this colour pair." | `lumo-wcag fix`. Report both the corrected hex and the strategy. |
 | "Audit this palette." | Run `lumo-wcag check` for every pair in the palette. Summarise as a table. |
-| "Review this Compose / SwiftUI screen." | Build a layout JSON (set `source` honestly), then run `lumo-theory check`. Combine with inline rules below for things the tool doesn't cover (typography, animation, anti-patterns). |
-| "Is this primary action reachable?" | `lumo-theory check` — the `reach_*` checks cover this. |
+| "Review this Compose / SwiftUI screen." | If the user supplied a `.kt` / `.swift` file, prefer `lumo-render compose --out screen.json` (or `swiftui`) followed by `lumo-theory check --from .`. That gives `ast-resolved` confidence instead of hand-built `code-estimated`. Fall back to a hand-built layout JSON only when the user gave a screenshot or NL description (`description-estimated`). |
+| "Is this primary action reachable?" | `lumo-theory check` — the `reach_*` checks cover this. Same render-first preference: produce the layout via `lumo-render` when source is available. |
 | "Are there too many choices on this screen?" | `lumo-theory check` — the `hick_overload` check covers this. |
-| "Compare this iOS screen to its Android version." | Build layout JSONs for both platforms (set `source` honestly), then run `lumo-parity diff`. Pass `--config lumo.config.json` when the user has a shared design system. |
+| "Compare this iOS screen to its Android version." | If both `.kt` and `.swift` files are available, run `lumo-render compose --out android.json` and `lumo-render swiftui --out ios.json` in a temp dir, then `lumo-parity diff --from .`. Pass `--config lumo.config.json` when the user has a shared design system. Hand-built JSONs only when source isn't given. |
 | "Does my SwiftUI match the design tokens?" | `lumo-parity diff` with `--config`. Even a single-platform check benefits from design-system validation. |
-| "Review this Compose file for design-system drift" / "are there hardcoded colours / off-scale paddings / undersized buttons in this `.kt`?" | `lumo-source check --file <path>`. Don't ask the user to translate the file into a layout JSON first — this tool reads source directly. |
+| "Review this Compose file for design-system drift" / "are there hardcoded colours / off-scale paddings / undersized buttons in this `.kt`?" | `lumo-source check --file <path>`. This tool reads source directly — don't ask the user to translate the file into a layout JSON first. |
 | "Review this SwiftUI file" / "audit this `.swift`" | `lumo-source check --file <path>` (language auto-detected by extension). Apple HIG min tap target = 44pt — Lumo uses that, not the Compose 48dp. |
+| "I have a Compose / SwiftUI file but no snapshot tests — give me real layout coordinates" / "where do the elements actually land" / "evaluate this layout statically" | `lumo-render compose --file <path>` or `lumo-render swiftui --file <path>`. Produces `ast-resolved` coordinates from the AST. Token references and unknown composables come back as `ast-unresolved` with a reason — never invented numbers. |
 | "Audit the whole project" / "what is our actual spacing scale" / "where are the drift hotspots" | `lumo-audit scan --root <path>`. Pass `--config lumo.config.json` for project-specific scales / excludes. The measured-scale section answers de-facto scale questions that no per-file tool can. |
 | "Does the code match Figma" / "what tokens are missing from the design system" / "is `spacing/lg` actually used" | `lumo-figma diff --file-key <key> --root .` (after `export FIGMA_TOKEN=…`). Matches by value, not name — so a token with a different code name still counts as matched. Treat `unused_in_code` as candidates for review (theme indirection is invisible here), and `missing_from_figma` as promotion candidates. |
 
@@ -684,6 +854,14 @@ Apply these in order before answering:
    HIGH → MEDIUM → LOW), then a one-line "+N more" pointer. Do not dump.
 5. **Ambiguity?** If the user provided a single colour without saying which
    is foreground and which is background, ask once. Do not guess.
+6. **Low render coverage?** When `lumo-render` returns < 50% coverage,
+   surface the unresolved reasons in a short list before running
+   downstream `lumo-theory` / `lumo-parity`. Tell the user which token
+   references or unknown composables blocked the eval so they can
+   decide whether to (a) inline the values for a one-off render,
+   (b) accept the partial coverage, or (c) fall back to a hand-built
+   layout JSON. Never silently proceed with mostly-unresolved input —
+   the downstream finding count would be misleading.
 
 ## What Lumo Does NOT Do
 

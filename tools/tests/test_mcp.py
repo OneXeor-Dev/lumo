@@ -14,6 +14,8 @@ from lumo.mcp.server import (  # noqa: F401  (lumo_figma_diff used by test below
     lumo_audit_scan,
     lumo_figma_diff,
     lumo_parity_diff,
+    lumo_render_compose,
+    lumo_render_swiftui,
     lumo_source_check_compose,
     lumo_source_check_swiftui,
     lumo_theory_check,
@@ -22,6 +24,7 @@ from lumo.mcp.server import (  # noqa: F401  (lumo_figma_diff used by test below
     server,
 )
 from lumo.parity.core import diff
+from lumo.render.core import render_compose, render_swiftui
 from lumo.source.core import check_compose, check_swiftui
 from lumo.theory.core import Element, Layout, Screen, check_layout
 from lumo.wcag.core import auto_correct, check_pair
@@ -45,6 +48,8 @@ async def test_server_registers_all_tools() -> None:
         "lumo_source_check_swiftui",
         "lumo_audit_scan",
         "lumo_figma_diff",
+        "lumo_render_compose",
+        "lumo_render_swiftui",
     }
 
 
@@ -329,3 +334,123 @@ def test_audit_scan_wrapper_respects_exclude(tmp_path: object) -> None:
 
     via_mcp = lumo_audit_scan(str(root), exclude=["tests/**"])
     assert via_mcp["files_scanned"] == 1
+
+
+# ============================================================================
+# render wrappers must agree with the underlying API
+# ============================================================================
+
+
+_COMPOSE_LOGIN = """
+@Composable
+fun LoginScreen() {
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+        Text("Welcome", modifier = Modifier.testTag("title"))
+        Spacer(modifier = Modifier.height(8.dp))
+        Button(onClick = {}, modifier = Modifier.fillMaxWidth().height(48.dp).testTag("cta")) {
+            Text("Continue")
+        }
+    }
+}
+"""
+
+_SWIFTUI_LOGIN = """
+struct LoginView: View {
+    var body: some View {
+        VStack {
+            Text("Welcome").accessibilityIdentifier("title")
+            Spacer().frame(height: 8)
+            Button(action: {}) { Text("Continue") }
+                .frame(maxWidth: .infinity, height: 48)
+                .accessibilityIdentifier("cta")
+        }.padding(16)
+    }
+}
+"""
+
+
+def test_render_compose_wrapper_matches_direct_call() -> None:
+    via_mcp = lumo_render_compose(_COMPOSE_LOGIN, screen_width=411, screen_height=891)
+    direct = render_compose(_COMPOSE_LOGIN, screen_width=411, screen_height=891)
+    assert via_mcp == direct.to_dict()
+    # Sanity: same coordinates Compose tests already verified.
+    assert via_mcp["coverage"] == 1.0
+    assert via_mcp["screen"]["unit"] == "dp"
+    ids = {e["id"]: e for e in via_mcp["elements"]}
+    assert ids["title"]["x"] == 16.0 and ids["title"]["y"] == 16.0
+    assert ids["cta"]["w"] == 379.0  # 411 - 32 padding
+    assert ids["cta"]["h"] == 48.0
+
+
+def test_render_swiftui_wrapper_matches_direct_call() -> None:
+    via_mcp = lumo_render_swiftui(_SWIFTUI_LOGIN, screen_width=411, screen_height=891)
+    direct = render_swiftui(_SWIFTUI_LOGIN, screen_width=411, screen_height=891)
+    assert via_mcp == direct.to_dict()
+    assert via_mcp["coverage"] == 1.0
+    assert via_mcp["screen"]["unit"] == "pt"
+    ids = {e["id"]: e for e in via_mcp["elements"]}
+    assert ids["cta"]["w"] == 379.0
+    assert ids["cta"]["h"] == 48.0
+
+
+def test_render_compose_and_swiftui_via_mcp_produce_matching_topology() -> None:
+    # The cross-platform parity guarantee — same logical screen, same
+    # coordinates through MCP. This is the whole point of having BOTH
+    # render tools in the MCP surface: clients can pair Android+iOS
+    # rendering in one tool call sequence and feed the results to
+    # lumo_parity_diff without manual coordinate work.
+    rc = lumo_render_compose(_COMPOSE_LOGIN, screen_width=411, screen_height=891)
+    rs = lumo_render_swiftui(_SWIFTUI_LOGIN, screen_width=411, screen_height=891)
+    rc_ids = {e["id"]: e for e in rc["elements"]}
+    rs_ids = {e["id"]: e for e in rs["elements"]}
+    for key in ("title", "cta"):
+        for axis in ("x", "y", "w", "h"):
+            assert rc_ids[key][axis] == rs_ids[key][axis], (
+                f"parity mismatch on {key}.{axis}: "
+                f"compose={rc_ids[key][axis]} swiftui={rs_ids[key][axis]}"
+            )
+
+
+def test_render_compose_wrapper_honours_target_kwarg() -> None:
+    src = """
+    @Composable
+    fun First() { Column { Text("a", modifier = Modifier.testTag("first")) } }
+    @Composable
+    fun Second() { Column { Text("b", modifier = Modifier.testTag("second")) } }
+    """
+    via_mcp = lumo_render_compose(src, target="Second")
+    ids = {e["id"] for e in via_mcp["elements"]}
+    assert ids == {"second"}
+
+
+def test_render_compose_wrapper_surfaces_ast_unresolved() -> None:
+    # Token references must reach the MCP client untouched, with their
+    # `reason` field — that's the whole honesty contract.
+    src = """
+    @Composable
+    fun X() {
+        Column(modifier = Modifier.padding(MaterialTheme.spacing.md)) {
+            Text("hi", modifier = Modifier.testTag("t"))
+        }
+    }
+    """
+    out = lumo_render_compose(src, screen_width=360, screen_height=800)
+    assert out["coverage"] == 0.0
+    t = next(e for e in out["elements"] if e["id"] == "t")
+    assert t["source"] == "ast-unresolved"
+    assert "MaterialTheme.spacing.md" in t["reason"]
+    assert "x" not in t  # no fake coordinates
+
+
+def test_render_swiftui_wrapper_surfaces_unknown_view() -> None:
+    src = """
+    struct V: View {
+        var body: some View {
+            VStack { CustomWidget().accessibilityIdentifier("c") }
+        }
+    }
+    """
+    out = lumo_render_swiftui(src)
+    c = next(e for e in out["elements"] if e["id"] == "c")
+    assert c["source"] == "ast-unresolved"
+    assert "unknown view: CustomWidget" in c["reason"]

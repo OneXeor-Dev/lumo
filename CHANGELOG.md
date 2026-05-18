@@ -5,6 +5,57 @@ All notable changes to Lumo are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and Lumo adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] — 2026-05-18
+
+Documentation + MCP completeness patch. 0.1.0 shipped `lumo-render`
+but missed two related surfaces — the skill (so AI clients couldn't
+discover or call the tool from a natural-language request) and the
+MCP server (so MCP-aware clients like Cursor / Continue / Aider could
+not call render at all). This release fixes both.
+
+### Added
+
+- **MCP wrappers for `lumo_render_compose` and `lumo_render_swiftui`.**
+  The MCP server now registers all 10 functions; the render wrappers
+  return the same Lumo layout JSON the CLI produces, with per-element
+  `ast-resolved` / `ast-unresolved` labels intact. AI clients can now
+  pair Android + iOS rendering in a single tool-call sequence and
+  feed the results straight to `lumo_parity_diff` without any manual
+  coordinate work.
+- **`### lumo-render` section in `skill/SKILL.md`** — full purpose,
+  when-to-invoke, CLI signatures for both subcommands, honesty
+  hierarchy explanation, worked examples for Compose and SwiftUI
+  side-by-side showing matching topology, and an honest unresolved
+  example proving the tool never invents coordinates.
+- **Decision Tree rows** for "I have a Compose / SwiftUI file but no
+  snapshot tests — give me real coordinates" and an updated
+  render-first preference on the screen-review / parity / Fitts rows.
+
+### Changed
+
+- **Honesty hierarchy in the skill bumped to four labels.** The
+  `lumo-theory` schema doc now lists `measured > ast-resolved >
+  code-estimated > description-estimated` and explicitly recommends
+  `lumo-render` over hand-translation for stronger downstream output.
+- **Stale reference cleaned up.** `lumo-source`'s "What this tool does
+  not do" section called `lumo-audit` "upcoming" — `lumo-audit` shipped
+  in v0.0.7, six releases ago.
+- **MCP server module docstring** now lists every registered tool by
+  name instead of claiming "three tools (WCAG, theory, parity)".
+- **README tool table** gains a row for `lumo-render` and the MCP
+  function list is now complete (was missing render functions).
+
+### Notes
+
+- Behaviour-only release: the Python API surface is unchanged, the CLI
+  flags are unchanged, the layout JSON schema is unchanged. Upgrading
+  is safe. The MCP surface DID grow (two new tool names), but that's
+  purely additive — existing MCP integrations are not affected.
+- Test suite: 231 → **237** (added 6 MCP tests: registration assertion
+  expanded to include the two new tools, four wrapper-parity tests
+  covering happy path / ast-unresolved / cross-platform topology
+  match / target kwarg). 100% pass.
+
 ## [0.1.0] — 2026-05-18
 
 **First minor release.** Up to 0.0.9 every release was a patch bump,

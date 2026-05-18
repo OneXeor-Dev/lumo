@@ -1,12 +1,21 @@
 """Lumo MCP server.
 
-Exposes the three Lumo tools (WCAG, theory, parity) over the Model Context
-Protocol so any MCP-compatible client (Claude Code, Cursor, Continue,
-Aider, Goose, Zed, etc.) can call them with structured arguments.
+Exposes every Lumo tool over the Model Context Protocol so any
+MCP-compatible client (Claude Code, Cursor, Continue, Aider, Goose,
+Zed, etc.) can call them with structured arguments.
+
+Registered functions:
+  - lumo_wcag_check / lumo_wcag_fix          (WCAG + OKLCH)
+  - lumo_theory_check                        (Fitts / Hick / Gestalt)
+  - lumo_parity_diff                         (cross-platform diff)
+  - lumo_source_check_compose / _swiftui     (per-file AST drift)
+  - lumo_audit_scan                          (whole-repo aggregator)
+  - lumo_figma_diff                          (Figma token diff)
+  - lumo_render_compose / _swiftui           (AST layout evaluator)
 
 This is a thin wrapper over the existing Python API — the heavy lifting
-stays in lumo.wcag, lumo.theory, lumo.parity. Adding MCP did not change a
-single line of those modules.
+stays in lumo.{wcag,theory,parity,source,audit,figma,render}. Adding MCP
+did not change a single line of those modules.
 
 Transport: stdio (the MCP standard for local servers).
 
@@ -31,6 +40,12 @@ from lumo.figma.core import (
     fetch_tokens as figma_fetch_tokens,
 )
 from lumo.parity.core import DesignSystemConfig, diff
+from lumo.render.core import (
+    DEFAULT_SCREEN_HEIGHT_DP,
+    DEFAULT_SCREEN_WIDTH_DP,
+    render_compose,
+    render_swiftui,
+)
 from lumo.source.core import (
     DEFAULT_RADIUS_SCALE_DP,
     DEFAULT_SPACING_SCALE_DP,
@@ -554,6 +569,139 @@ def lumo_figma_diff(
             "BOOLEAN": len(figma.booleans),
         },
     }
+
+
+# ============================================================================
+# Tool 9 — render_compose
+# ============================================================================
+
+
+@server.tool()
+def lumo_render_compose(
+    source: str,
+    target: str | None = None,
+    screen_width: float = DEFAULT_SCREEN_WIDTH_DP,
+    screen_height: float = DEFAULT_SCREEN_HEIGHT_DP,
+) -> dict[str, Any]:
+    """AST layout evaluator for Jetpack Compose — produces measured-like
+    (x, y, w, h) coordinates from source, no build / app run / snapshot test.
+
+    Walks the same tree-sitter-kotlin AST `lumo_source_check_compose` uses,
+    but instead of running drift checks it *evaluates* the layout: an
+    offset-stack interpreter for `Column` / `Row` / `Box` / `Card` /
+    `Surface` and the common modifier transforms (`padding(...)` in every
+    form, `size`/`width`/`height`, `fillMaxWidth/Height/Size`,
+    `offset(x, y)`, `weight(N)` two-pass, `wrapContentSize`, `testTag`)
+    produces coordinates for every element it can derive statically.
+
+    Output is the same Lumo layout JSON `lumo_theory_check` and
+    `lumo_parity_diff` consume, so this is the missing piece that lets
+    those tools run on a typical screen without hand-built JSON. Pipeline:
+
+        lumo_render_compose(src) → layout JSON → lumo_theory_check(layout)
+
+    Honesty hierarchy — every element carries one of these `source` labels:
+
+        measured > ast-resolved > code-estimated > description-estimated
+
+      - `ast-resolved` — value derived from a static AST evaluation of
+        known layout rules. Higher trust than `code-estimated` (which
+        means "the LLM guessed numbers from reading code") because the
+        evaluator is deterministic and refuses to invent values.
+      - `ast-unresolved` — token reference (`MaterialTheme.spacing.md`),
+        unknown composable, runtime expression, or a descendant of an
+        unresolved container. Carries a `reason` field, no coordinates.
+        Sibling elements are NOT tainted by an unresolved sibling.
+
+    Atoms supported in v1: Text, Button (+ outlined/text/elevated/tonal
+    variants), IconButton (+ filled/tonal/outlined variants), Icon, Image,
+    FloatingActionButton (+ small/large/extended), Spacer.
+
+    Args:
+        source: Compose .kt source code (full file content).
+        target: Optional name of the @Composable to render. If omitted,
+                the first @Composable in the file is used.
+        screen_width: Root container width in dp (default 360).
+                      `fillMaxWidth()` / `weight(N)` resolve against this.
+        screen_height: Root container height in dp (default 800).
+
+    Returns:
+        Dict matching the Lumo layout JSON schema:
+          - `screen` — width / height / unit ("dp")
+          - `source` — top-level label ("ast-resolved")
+          - `elements` — list of {id, role, source, x?, y?, w?, h?, reason?}
+          - `coverage` — fraction of elements that resolved (0.0–1.0)
+    """
+    report = render_compose(
+        source,
+        target=target,
+        screen_width=screen_width,
+        screen_height=screen_height,
+    )
+    return report.to_dict()
+
+
+# ============================================================================
+# Tool 10 — render_swiftui
+# ============================================================================
+
+
+@server.tool()
+def lumo_render_swiftui(
+    source: str,
+    target: str | None = None,
+    screen_width: float = DEFAULT_SCREEN_WIDTH_DP,
+    screen_height: float = DEFAULT_SCREEN_HEIGHT_DP,
+) -> dict[str, Any]:
+    """AST layout evaluator for SwiftUI — same evaluator as Compose, plugged
+    into a SwiftUI-specific parser.
+
+    Walks the tree-sitter-swift AST of a SwiftUI source string and
+    produces measured-like coordinates for every view it can derive
+    statically. Containers: `VStack` / `HStack` / `ZStack` / `Group`.
+    Atoms: `Text`, `Button`, `Image`, `Label`, `Spacer`, `Rectangle`,
+    `Circle`, `RoundedRectangle`, `Divider`, `Toggle`, `NavigationLink`,
+    `Link`. Modifiers: `.padding()` in every form (no-arg / value / edge
+    + value covering `.horizontal` / `.vertical` / `.leading` /
+    `.trailing` / `.top` / `.bottom` / `.all`), `.frame(width:height:)`,
+    `.frame(maxWidth: .infinity)` as fill-max marker, `.offset(x:y:)`,
+    `.accessibilityIdentifier("id")`.
+
+    `Spacer()` with no `.frame` acts as axis-flex inside an HStack /
+    VStack — same two-pass allocation as Compose's `weight(N)`.
+
+    Apple HIG defaults baked in: 44 pt minimum tap target for `Button` /
+    `NavigationLink` / `Toggle`, 24 pt for `Image`.
+
+    Output schema is identical to `lumo_render_compose`. Coordinates are
+    unit-less floats; the `screen.unit` is `"pt"` so downstream parity
+    tools can tell the platforms apart, but pt and dp are physically
+    equal so direct comparison is valid — the same logical screen
+    expressed in Compose and SwiftUI yields matching topology.
+
+    Same honesty hierarchy as Compose:
+
+        measured > ast-resolved > code-estimated > description-estimated
+
+    Args:
+        source: SwiftUI .swift source code (full file content).
+        target: Optional name of the View struct to render (e.g.
+                "LoginView"). If omitted, the first View is used.
+        screen_width: Root container width in pt (default 360).
+                      `.frame(maxWidth: .infinity)` resolves against this.
+        screen_height: Root container height in pt (default 800).
+
+    Returns:
+        Dict matching the Lumo layout JSON schema (same shape as
+        `lumo_render_compose`).
+    """
+    report = render_swiftui(
+        source,
+        target=target,
+        screen_width=screen_width,
+        screen_height=screen_height,
+    )
+    return report.to_dict()
 
 
 # ============================================================================
