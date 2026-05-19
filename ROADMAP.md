@@ -236,22 +236,30 @@ lumo/
      `reason` field — never a guessed number. Same honesty rule as
      `lumo-source`.
 
-   This closes most of the value `snapshot_input` was meant to deliver,
-   without requiring the user to have snapshot tests. Coverage on a
-   typical mobile form / KYC screen is ~60–80% of elements; the rest
-   stays `ast-unresolved` and the downstream tools (`theory` / `parity`)
-   skip those instead of inferring.
+   Without multi-file resolution (next item below), coverage on
+   typical production screens lands at **~28 %** — the rest is
+   app-specific custom composables defined in other files. With
+   multi-file (0.2.0) we target **≥ 60 %**; the last gap remains the
+   runtime values `snapshot_input` covers.
 
-8. **`snapshot_input`** — read **measured** layouts from snapshot-testing
+8. **Multi-file AST resolution** ⏳ next (target 0.2.0).
+   When `lumo-render` hits an unknown composable, walk the project to
+   find its definition, parse that file, and inline the body — the
+   honesty rule still applies (anything we can't resolve still emits
+   `ast-unresolved` with a reason). Full design split across five
+   sub-docs under
+   [docs/design/multi-file-resolution/](./docs/design/multi-file-resolution/):
+   project index → name resolution → inline expansion → modifier
+   forwarding → end-to-end trace. Four-phase rollout, one PR per phase.
+9. **`snapshot_input`** — read **measured** layouts from snapshot-testing
    frameworks (Roborazzi + swift-snapshot-testing). Moved to Phase 3 as
-   a *precision upgrade* — `lumo-render` already produces high-trust
-   coordinates without snapshot-test infrastructure, so the
-   capture-library work only earns its keep when a user needs the last
-   20% of accuracy (runtime token resolution, dynamic type, weight
-   siblings). Full design still in
+   a *precision upgrade* — once `lumo-render` + multi-file land, the
+   capture-library work only earns its keep on the last ~20 % where
+   runtime values matter (token resolution, dynamic type, weight
+   siblings driven by state). Full design still in
    [docs/design/snapshot-input.md](./docs/design/snapshot-input.md).
-9. **`rules_search`** — hybrid BM25 + local embedding search over rules DB.
-10. **`audit_html`** — optional HTML report renderer for `lumo-audit`.
+10. **`rules_search`** — hybrid BM25 + local embedding search over rules DB.
+11. **`audit_html`** — optional HTML report renderer for `lumo-audit`.
     Postponed: would add a templating dep (jinja2 etc.) and Socket will
     flag the new attack surface. The current markdown / JSON output is
     enough for CI consumption; revisit after dogfood.
