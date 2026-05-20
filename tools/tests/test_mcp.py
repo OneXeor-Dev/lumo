@@ -48,6 +48,7 @@ async def test_server_registers_all_tools() -> None:
         "lumo_source_check_swiftui",
         "lumo_audit_scan",
         "lumo_figma_diff",
+        "lumo_figma_render",
         "lumo_render_compose",
         "lumo_render_swiftui",
     }

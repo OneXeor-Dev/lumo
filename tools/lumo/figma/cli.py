@@ -47,6 +47,7 @@ from lumo.figma.core import (
     FigmaDiffReport,
     FigmaTokens,
     diff_against_audit,
+    fetch_node_layout,
     fetch_tokens,
     parse_figma_url,
 )
@@ -269,6 +270,52 @@ def main(argv: list[str] | None = None) -> int:
         help="Also write a markdown report to this path.",
     )
 
+    render = sub.add_parser(
+        "render",
+        help="Render a Figma frame to a Lumo layout JSON (source: measured).",
+    )
+    render.add_argument(
+        "--file-key",
+        default=None,
+        help="Figma file key (the `abc123` part of a Figma URL).",
+    )
+    render.add_argument(
+        "--node-id",
+        default=None,
+        help="Figma node id (e.g. `1:23`). Get it from the URL's `node-id=`.",
+    )
+    render.add_argument(
+        "--url",
+        default=None,
+        help="Or pass a Figma URL — file key + node id extracted automatically.",
+    )
+    render.add_argument(
+        "--screen-width",
+        type=float,
+        default=None,
+        help=(
+            "Override the root frame width. Default: use Figma's own frame width. "
+            "Useful when the Figma artboard is at 1440px but you want lumo-theory "
+            "to apply at 411dp."
+        ),
+    )
+    render.add_argument(
+        "--screen-height",
+        type=float,
+        default=None,
+        help="Override the root frame height.",
+    )
+    render.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit Lumo-schema layout JSON to stdout (default: human-readable text).",
+    )
+    render.add_argument(
+        "--out",
+        default=None,
+        help="Also write the layout JSON to this file (always JSON, regardless of --json).",
+    )
+
     args = parser.parse_args(argv)
 
     if args.cmd == "diff":
@@ -307,7 +354,57 @@ def main(argv: list[str] | None = None) -> int:
 
         return 1 if report.summary_counts.get("missing_from_figma", 0) > 0 else 0
 
+    if args.cmd == "render":
+        file_key = args.file_key
+        node_id = args.node_id
+        if args.url:
+            parsed = parse_figma_url(args.url)
+            file_key = file_key or parsed.file_key
+            node_id = node_id or parsed.node_id
+        if not file_key or not node_id:
+            print(
+                "Pass --file-key <key> --node-id <id>, or --url <figma-url>.",
+                file=sys.stderr,
+            )
+            return 2
+
+        try:
+            render_report = fetch_node_layout(
+                file_key,
+                node_id,
+                screen_width=args.screen_width,
+                screen_height=args.screen_height,
+            )
+        except FigmaApiError as e:
+            print(f"figma: {e}", file=sys.stderr)
+            return 2
+
+        payload = render_report.to_dict()
+        if args.json:
+            print(json.dumps(payload, indent=2))
+        else:
+            _print_render_text(render_report)
+        if args.out:
+            Path(args.out).write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        return 0 if render_report.elements else 2
+
     return 2
+
+
+def _print_render_text(report: Any) -> None:
+    """Human-readable summary for `lumo-figma render`."""
+    print(
+        f"screen {report.screen_width:g}x{report.screen_height:g}{report.unit}  "
+        f"elements={len(report.elements)}  source=measured"
+    )
+    for e in report.elements:
+        if e.x is None:
+            print(f"  {e.id:<28} {e.role:<16} UNRESOLVED — {e.reason}")
+        else:
+            print(
+                f"  {e.id:<28} {e.role:<16} "
+                f"x={e.x:.1f} y={e.y:.1f} w={e.w:.1f} h={e.h:.1f}"
+            )
 
 
 if __name__ == "__main__":

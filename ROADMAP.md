@@ -190,22 +190,30 @@ lumo/
      audit doesn't depend on git, so adopting `.gitignore` itself would
      be a hidden coupling. Land after Figma sync + snapshot capture so
      the audit's role in the lifecycle is fully understood.
-6. **`lumo-figma` — Figma token diff** ✅ shipped in v0.0.8.
-   Fetches Figma variables (COLOR + FLOAT) via `/v1/files/{key}/variables/local`,
-   resolves alias chains and named modes, diffs by value against a
-   `lumo-audit` JSON payload. Three buckets: matched / unused_in_code /
-   missing_from_figma. Match key is value, never name — Figma names
-   (`spacing/lg`) and code identifiers (`Dimens.lg.dp`) drift across
-   projects, so name-based join produces false negatives. Auth via
-   `FIGMA_TOKEN` env (never via CLI flags). Exposed as CLI
-   (`lumo-figma diff --file-key … --root .`) and as the 8th MCP tool
-   (`lumo_figma_diff`).
+6. **`lumo-figma` — Figma integration (two subcommands)**.
+   - **`diff`** ✅ shipped in v0.0.8. Fetches Figma variables (COLOR +
+     FLOAT) via `/v1/files/{key}/variables/local`, resolves alias
+     chains and named modes, diffs by value against a `lumo-audit`
+     JSON payload. Three buckets: matched / unused_in_code /
+     missing_from_figma. Match key is value, never name — Figma names
+     (`spacing/lg`) and code identifiers (`Dimens.lg.dp`) drift, so
+     name-based join produces false negatives. Auth via `FIGMA_TOKEN`
+     env. MCP tool `lumo_figma_diff`.
+   - **`render`** ✅ shipped in v0.2.0. Hits `/v1/files/{key}/nodes`,
+     walks the frame subtree, emits a Lumo layout JSON with
+     `source: "measured"` — Figma's `absoluteBoundingBox` IS the
+     post-Auto-Layout rendered coordinate. Lets `lumo-theory` /
+     `lumo-parity` run on the DESIGN itself, before any code ships.
+     Element ids come from layer names; role heuristics from name
+     prefix (`btn_*` → primary_action, `nav_*` → nav_item, etc.).
+     Hidden / null-bbox nodes are skipped, not faked. MCP tool
+     `lumo_figma_render`. Design at
+     [docs/design/figma-render.md](./docs/design/figma-render.md).
    - **Out of scope (v1):** Styles (the older Figma token system) need
-     a node-tree walk and ship in a later phase. Frame-by-frame layout
-     diff lives in `snapshot_input`, not here. No mapping config — we
-     match by value, so naming convention drift doesn't block the
-     diff. Add a `figma.mapping` config only when a real user case
-     demonstrates name-aware matching is materially better.
+     a node-tree walk and ship in a later phase. Pixel-diff of Figma
+     vs rendered app lives in `snapshot_input`, not here. No mapping
+     config — we match by value, so naming convention drift doesn't
+     block the diff.
 7. **`lumo-render` — AST layout evaluator (Compose + SwiftUI)** ✅
    shipped in v0.1.0.
    Walks the same tree-sitter AST `lumo-source` already produces, but
@@ -242,7 +250,8 @@ lumo/
    multi-file (0.2.0) we target **≥ 60 %**; the last gap remains the
    runtime values `snapshot_input` covers.
 
-8. **Multi-file AST resolution** ⏳ next (target 0.2.0).
+8. **Multi-file AST resolution** ⏳ next (target 0.3.0 — bumped one
+   minor after `lumo-figma render` shipped in 0.2.0).
    When `lumo-render` hits an unknown composable, walk the project to
    find its definition, parse that file, and inline the body — the
    honesty rule still applies (anything we can't resolve still emits

@@ -5,6 +5,98 @@ All notable changes to Lumo are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and Lumo adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] — 2026-05-18
+
+Lumo can now audit the **design itself** — not just the code. New
+subcommand `lumo-figma render` hits Figma's REST API, walks a frame
+subtree, and emits the same Lumo layout JSON the cognitive-science
+tools (`lumo-theory`, `lumo-parity`) already consume. Every element
+carries `source: "measured"` because Figma's `absoluteBoundingBox` IS
+the rendered coordinate after Auto-Layout and constraints resolve —
+the highest-trust label in the honesty hierarchy.
+
+This unlocks design audit **before any code ships**: open a Figma
+frame, run `lumo-figma render --url … | lumo-theory check`, get
+Fitts / Hick / Gestalt / reach findings on the design. No hand-built
+layout JSON, no LLM-guessed coordinates, no snapshot test required.
+
+### Added
+
+- **`lumo-figma render` subcommand.** Hits
+  `/v1/files/{file_key}/nodes?ids={node_id}` (one round trip per
+  render), walks the document tree, normalises coordinates to the
+  root frame's origin, and produces a Lumo layout JSON with
+  `source: "measured"` per element.
+
+  - **CLI:** `lumo-figma render --file-key X --node-id Y` or
+    `--url <figma-url>` (auto-parses file key + node id). Optional
+    `--screen-width` / `--screen-height` clamps when the Figma frame
+    is not at production resolution. `--json` / `--out f.json` mirror
+    the other render tools.
+  - **Public API:** `lumo.figma.core.fetch_node_layout(file_key,
+    node_id, ...) -> RenderReport`. Returns the same dataclass
+    `render_compose` / `render_swiftui` produce.
+  - **MCP tool:** `lumo_figma_render(file_key, node_id, ...)`.
+    Brings MCP function count to 11.
+
+  Element IDs are sanitised layer names (`"Btn / Continue"` →
+  `btn_continue`). Frame names become `group` hints
+  (`"Bottom Nav"` → `bottom_nav` on every child). Role heuristics
+  from name prefix:
+    - `btn_*` / `*Button*` / `INSTANCE` containing "btn" → `primary_action`
+    - `nav_*` / `bottom_nav` / `tab_bar` → `nav_item`
+    - `icon_*` / square `VECTOR` → `icon`
+    - `input_*` / `*field*` → `input`
+    - TEXT → `text`; RECTANGLE / VECTOR / ELLIPSE → `image`;
+      otherwise → `decorative`.
+
+  Honesty rules locked:
+    - `source: "measured"` per element (Figma's bbox IS measurement).
+    - Hidden layers (`visible: false`) are skipped — they don't ship.
+    - Nodes without `absoluteBoundingBox` (auto-layout placeholders
+      Figma hasn't measured yet) are skipped, not faked. Children
+      with their own bbox are still walked.
+    - Auth via `FIGMA_TOKEN` env, never CLI flag — same convention as
+      `lumo-figma diff`.
+
+  Full design: [docs/design/figma-render.md](./docs/design/figma-render.md).
+
+- **Honesty hierarchy now has four labels in the type system.**
+  `Element.source` accepts `measured` | `ast-resolved` |
+  `ast-unresolved` | `code-estimated` | `description-estimated`. The
+  top-level `RenderReport.source` picks the most-trustworthy label
+  present across elements (so a Figma render reports `"measured"`,
+  a Compose render reports `"ast-resolved"`, a mixed audit reports
+  the better of the two).
+
+### Changed
+
+- **`lumo-figma` CLI gained the `render` subcommand** alongside the
+  existing `diff`. Backward compatible — `diff` invocations work
+  unchanged.
+- **Multi-file AST resolution slipped to 0.3.0.** It was the original
+  0.2.0 plan; design at
+  `docs/design/multi-file-resolution/` is unchanged. `lumo-figma render`
+  shipped first because (a) it's smaller, (b) it solves a real Plazo
+  use case (design audit) the team can run today, (c) it makes Lumo
+  useful WITHOUT code, broadening the audience.
+
+### Notes
+
+- Behaviour-only release of the existing CLIs. No regressions
+  expected — `lumo-render compose/swiftui` and every other tool work
+  unchanged.
+- Test suite: 249 → **269** (+20 figma render tests covering payload
+  parsing, coordinate translation, role heuristics, layer-id
+  sanitisation, hidden / null-bbox handling, screen-size override,
+  MCP wrapper-parity, dash-to-colon node id normalisation, error
+  paths). mypy strict clean.
+- Roadmap item 6 now describes `lumo-figma` as a two-subcommand tool
+  (`diff` shipped 0.0.8, `render` shipped 0.2.0).
+- This is the first time Lumo's audit aperture extends to artefacts
+  the engineer didn't write — the dev gets to find design problems
+  before they're committed to code.
+
 ## [0.1.2] — 2026-05-18
 
 Coverage patch driven by a dogfood run against 18 real production

@@ -248,7 +248,7 @@ ALL_KNOWN_SWIFTUI = (
 # ============================================================================
 
 
-ElementSource = Literal["ast-resolved", "ast-unresolved"]
+ElementSource = Literal["measured", "ast-resolved", "ast-unresolved", "code-estimated", "description-estimated"]
 
 
 @dataclass(frozen=True)
@@ -294,7 +294,11 @@ class RenderReport:
 
     @property
     def resolved_count(self) -> int:
-        return sum(1 for e in self.elements if e.source == "ast-resolved")
+        return sum(
+            1
+            for e in self.elements
+            if e.source in ("ast-resolved", "measured")
+        )
 
     @property
     def unresolved_count(self) -> int:
@@ -305,10 +309,26 @@ class RenderReport:
         total = len(self.elements)
         return self.resolved_count / total if total else 0.0
 
+    @property
+    def top_level_source(self) -> str:
+        """Pick the most-trustworthy label across elements for the
+        top-level `source` field. `measured` (Figma) wins over
+        `ast-resolved` (compose/swiftui), which wins over `ast-unresolved`.
+        Empty reports default to ast-resolved (compatible with v0.1.x).
+        """
+        if not self.elements:
+            return "ast-resolved"
+        order = ["measured", "ast-resolved", "code-estimated", "description-estimated", "ast-unresolved"]
+        present = {e.source for e in self.elements}
+        for label in order:
+            if label in present:
+                return label
+        return "ast-resolved"
+
     def to_dict(self) -> dict[str, object]:
         return {
             "screen": {"width": self.screen_width, "height": self.screen_height, "unit": self.unit},
-            "source": "ast-resolved",  # report-level label; per-element label is on each element
+            "source": self.top_level_source,
             "elements": [e.to_dict() for e in self.elements],
             "coverage": round(self.coverage, 3),
         }

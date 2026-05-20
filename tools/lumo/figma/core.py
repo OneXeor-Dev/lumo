@@ -40,6 +40,8 @@ from urllib.parse import unquote, urlparse
 
 import httpx
 
+from lumo.render.core import Element, RenderReport
+
 FIGMA_API_BASE = "https://api.figma.com/v1"
 DEFAULT_TIMEOUT_SECONDS = 30.0
 
@@ -635,4 +637,312 @@ def diff_against_audit(
         unused_in_code=tuple(unused),
         missing_from_figma=tuple(missing),
         summary_counts=counts,
+    )
+
+
+# ============================================================================
+# Figma layout render
+# ============================================================================
+#
+# `lumo-figma render` turns a Figma frame into a Lumo layout JSON with
+# `source: "measured"`. The downstream toolchain (`lumo-theory`,
+# `lumo-parity`) consumes the result unchanged. This is the missing
+# piece for "design audit without code" — Fitts / Hick / Gestalt /
+# reach checks against the Figma file directly, before a single line
+# ships. Honesty rule: we never invent coordinates; nodes Figma cannot
+# measure (auto-layout placeholders with null `absoluteBoundingBox`)
+# are skipped, not faked.
+
+# Maximum recursion depth when walking the Figma node tree. 200 covers
+# every realistic mobile screen; the cap exists to prevent runaway
+# walks on broken / cyclic API responses.
+_FIGMA_RENDER_MAX_DEPTH = 200
+
+# Figma node types we treat as having a renderable box. Other types
+# (DOCUMENT, CANVAS, SECTION wrapper) are walked but not emitted.
+_FIGMA_RENDERABLE_TYPES = frozenset({
+    "FRAME", "GROUP", "COMPONENT", "COMPONENT_SET", "INSTANCE",
+    "RECTANGLE", "ELLIPSE", "REGULAR_POLYGON", "STAR", "VECTOR",
+    "LINE", "TEXT", "BOOLEAN_OPERATION", "STAMP", "SLICE",
+})
+
+# Container types whose name should be propagated as `group` to
+# descendant elements. The root frame's name is NOT used as group —
+# it's the screen, not a sub-group.
+_FIGMA_GROUP_TYPES = frozenset({
+    "FRAME", "GROUP", "COMPONENT", "COMPONENT_SET", "SECTION",
+})
+
+
+def _fetch_node(
+    file_key: str,
+    node_id: str,
+    token: str,
+    http_client: httpx.Client | None = None,
+) -> dict[str, Any]:
+    """GET /v1/files/{file_key}/nodes?ids={node_id}. One round trip.
+
+    Returns the raw JSON; the caller picks `["nodes"][node_id]["document"]`.
+    """
+    endpoint = f"/files/{file_key}/nodes"
+    url = f"{FIGMA_API_BASE}{endpoint}"
+    headers = {"X-Figma-Token": token}
+    params = {"ids": node_id}
+
+    client = http_client or httpx.Client(timeout=DEFAULT_TIMEOUT_SECONDS)
+    owns_client = http_client is None
+    try:
+        resp = client.get(url, headers=headers, params=params)
+        if resp.status_code != 200:
+            raise FigmaApiError(
+                status=resp.status_code,
+                endpoint=f"{endpoint}?ids={node_id}",
+                body=resp.text,
+            )
+        return cast(dict[str, Any], resp.json())
+    finally:
+        if owns_client:
+            client.close()
+
+
+_ID_SANITISE_RE = re.compile(r"[^A-Za-z0-9_]+")
+
+
+def _sanitise_id(name: str, fallback: str) -> str:
+    """Slugify a Figma layer name to a safe element id.
+
+    "Btn / Continue" → "btn_continue". Empty / all-punct → fallback.
+    """
+    if not name:
+        return fallback
+    slug = _ID_SANITISE_RE.sub("_", name).strip("_").lower()
+    return slug or fallback
+
+
+def _figma_role(node: Mapping[str, Any], name_lower: str) -> str:
+    """Best-effort role heuristic from node type + name. Documented in
+    docs/design/figma-render.md §"Role heuristic".
+
+    Order matters — first match wins. Users override by renaming layers.
+    """
+    ntype = node.get("type", "")
+    if name_lower.startswith("btn_") or "button" in name_lower or (
+        ntype == "INSTANCE" and "btn" in name_lower
+    ):
+        return "primary_action"
+    if name_lower.startswith("nav_") or "tab_bar" in name_lower or "bottom_nav" in name_lower:
+        return "nav_item"
+    if name_lower.startswith("icon_") or (
+        ntype == "VECTOR" and _is_square(node)
+    ):
+        return "icon"
+    if name_lower.startswith("input_") or "field" in name_lower or "textfield" in name_lower:
+        return "input"
+    if ntype == "TEXT":
+        return "text"
+    if ntype in ("RECTANGLE", "VECTOR", "ELLIPSE", "REGULAR_POLYGON", "STAR"):
+        return "image"
+    return "decorative"
+
+
+def _is_square(node: Mapping[str, Any]) -> bool:
+    """True when the node's bbox is square-ish (within 10% tolerance)."""
+    bbox = node.get("absoluteBoundingBox") or {}
+    w = float(bbox.get("width") or 0.0)
+    h = float(bbox.get("height") or 0.0)
+    if w <= 0 or h <= 0:
+        return False
+    return bool(abs(w - h) / max(w, h) < 0.1)
+
+
+@dataclass(frozen=True)
+class _FigmaWalkStats:
+    nodes_seen: int = 0
+    nodes_skipped_invisible: int = 0
+    nodes_skipped_no_bbox: int = 0
+    truncated_depth: bool = False
+
+
+def _walk_figma_tree(
+    root_node: Mapping[str, Any],
+) -> tuple[tuple[Element, ...], dict[str, float], _FigmaWalkStats]:
+    """Recursively walk a Figma node tree, return Lumo layout elements
+    plus the root frame's (width, height) for `screen`.
+
+    The root's `absoluteBoundingBox.x/y` is subtracted from every
+    descendant so the root sits at (0, 0). Honesty rule: nodes without
+    a measurable bounding box are skipped; counts surface in stats.
+    """
+    root_bbox = root_node.get("absoluteBoundingBox") or {}
+    if not root_bbox:
+        raise FigmaApiError(
+            status=200,
+            endpoint="<render>",
+            body=(
+                f"Figma node {root_node.get('id')!r} has no "
+                "absoluteBoundingBox — cannot render an unmeasured frame."
+            ),
+        )
+    origin_x = float(root_bbox.get("x", 0.0))
+    origin_y = float(root_bbox.get("y", 0.0))
+    screen_dims = {
+        "width": float(root_bbox.get("width", 0.0)),
+        "height": float(root_bbox.get("height", 0.0)),
+    }
+
+    elements: list[Element] = []
+    id_counter: dict[str, int] = {}
+    nodes_seen = 0
+    skipped_invisible = 0
+    skipped_no_bbox = 0
+    truncated = False
+
+    def visit(node: Mapping[str, Any], parent_group: str | None, depth: int) -> None:
+        nonlocal nodes_seen, skipped_invisible, skipped_no_bbox, truncated
+        if depth > _FIGMA_RENDER_MAX_DEPTH:
+            truncated = True
+            return
+        nodes_seen += 1
+        # Skip hidden layers — they don't ship.
+        if node.get("visible") is False:
+            skipped_invisible += 1
+            return
+        ntype = node.get("type", "")
+        name = (node.get("name") or "").strip()
+        name_lower = name.lower().replace(" ", "_").replace("/", "_")
+
+        # Decide whether THIS node emits an element. The root frame
+        # itself isn't emitted (it's the screen), only its descendants.
+        is_root = depth == 0
+        if not is_root and ntype in _FIGMA_RENDERABLE_TYPES:
+            bbox = node.get("absoluteBoundingBox")
+            if bbox is None:
+                skipped_no_bbox += 1
+                # Even with no bbox, walk children — they may have their own.
+            else:
+                role = _figma_role(node, name_lower)
+                fallback_id = f"{role}_{id_counter.get(role, 0) + 1}"
+                eid = _sanitise_id(name, fallback_id)
+                # Keep the counter regardless so collisions get _2, _3
+                id_counter[role] = id_counter.get(role, 0) + 1
+                # If the sanitised id collides with a previously emitted one,
+                # append a counter suffix.
+                base_eid = eid
+                seen_ids = {e.id for e in elements}
+                suffix = 2
+                while eid in seen_ids:
+                    eid = f"{base_eid}_{suffix}"
+                    suffix += 1
+                elements.append(Element(
+                    id=eid,
+                    role=role,
+                    x=float(bbox["x"]) - origin_x,
+                    y=float(bbox["y"]) - origin_y,
+                    w=float(bbox["width"]),
+                    h=float(bbox["height"]),
+                    source="ast-resolved",  # placeholder; overridden below
+                    group=parent_group,
+                ))
+
+        # Determine the group hint we pass to children.
+        if ntype in _FIGMA_GROUP_TYPES and not is_root:
+            child_group = _sanitise_id(name, "") or parent_group
+        else:
+            child_group = parent_group
+
+        for child in node.get("children", []) or []:
+            visit(child, child_group, depth + 1)
+
+    visit(root_node, None, depth=0)
+
+    # Stamp all elements as `source: "measured"` — Figma's bbox IS
+    # measurement, not a static guess. Replace the placeholder we used
+    # in the constructor (Element.source is a frozen Literal; rebuild).
+    measured_elements = tuple(
+        Element(
+            id=e.id,
+            role=e.role,
+            x=e.x, y=e.y, w=e.w, h=e.h,
+            source="measured",
+            group=e.group,
+            weight=e.weight,
+            reason=e.reason,
+        )
+        for e in elements
+    )
+
+    stats = _FigmaWalkStats(
+        nodes_seen=nodes_seen,
+        nodes_skipped_invisible=skipped_invisible,
+        nodes_skipped_no_bbox=skipped_no_bbox,
+        truncated_depth=truncated,
+    )
+    return measured_elements, screen_dims, stats
+
+
+def fetch_node_layout(
+    file_key: str,
+    node_id: str,
+    *,
+    token: str | None = None,
+    screen_width: float | None = None,
+    screen_height: float | None = None,
+    http_client: httpx.Client | None = None,
+) -> RenderReport:
+    """Hit Figma's `/v1/files/{file_key}/nodes?ids={node_id}` endpoint
+    and turn the response into a Lumo `RenderReport`.
+
+    `screen_width` / `screen_height` override the root frame's natural
+    dimensions when you want to clamp a Figma frame to a specific mobile
+    resolution (e.g. Figma frame is 1440px wide but you want to apply
+    `lumo-theory check` at 411dp).
+
+    Returns a `RenderReport` with `source: "measured"` on every element.
+    """
+    resolved_token = _resolve_token(token)
+    payload = _fetch_node(file_key, node_id, resolved_token, http_client)
+    return _parse_node_layout_payload(
+        payload,
+        node_id,
+        screen_width=screen_width,
+        screen_height=screen_height,
+    )
+
+
+def _parse_node_layout_payload(
+    payload: Mapping[str, Any],
+    node_id: str,
+    *,
+    screen_width: float | None = None,
+    screen_height: float | None = None,
+) -> RenderReport:
+    """Pure transform from a Figma `/nodes` response to RenderReport.
+
+    Extracted so tests can feed fixture JSON without touching httpx.
+    """
+    nodes = payload.get("nodes") or {}
+    entry = nodes.get(node_id)
+    if entry is None:
+        raise FigmaApiError(
+            status=200,
+            endpoint=f"<render:{node_id}>",
+            body=(
+                f"Figma response does not contain node_id={node_id!r}. "
+                f"Got keys: {sorted(nodes.keys())!r}"
+            ),
+        )
+    document = entry.get("document")
+    if document is None:
+        raise FigmaApiError(
+            status=200,
+            endpoint=f"<render:{node_id}>",
+            body=f"Figma node {node_id!r} has no 'document' field.",
+        )
+
+    elements, screen_dims, _stats = _walk_figma_tree(document)
+    return RenderReport(
+        screen_width=screen_width if screen_width is not None else screen_dims["width"],
+        screen_height=screen_height if screen_height is not None else screen_dims["height"],
+        unit="dp",  # Figma units map to dp/pt; we expose as dp for parity downstream
+        elements=elements,
     )

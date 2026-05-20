@@ -22,7 +22,7 @@ import { doctorCommand } from "./commands/doctor.js";
 import { uninstallCommand } from "./commands/uninstall.js";
 import { red } from "./lib/style.js";
 
-const VERSION = "0.1.2";
+const VERSION = "0.2.0";
 
 const USAGE = `lumo — mobile UI/UX design intelligence installer (v${VERSION})
 

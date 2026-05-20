@@ -381,3 +381,296 @@ def test_diff_empty_inputs_produce_empty_report() -> None:
         "unused_in_code": 0,
         "missing_from_figma": 0,
     }
+
+
+# ============================================================================
+# Figma layout render (0.2.0)
+# ============================================================================
+
+from lumo.figma.core import (  # noqa: E402
+    _parse_node_layout_payload,
+    fetch_node_layout,
+)
+
+
+def _figma_nodes_payload(
+    node_id: str,
+    *,
+    frame_w: float = 411,
+    frame_h: float = 891,
+    children: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Build a minimal Figma /v1/files/.../nodes response."""
+    return {
+        "nodes": {
+            node_id: {
+                "document": {
+                    "id": node_id,
+                    "name": "Login Screen",
+                    "type": "FRAME",
+                    "absoluteBoundingBox": {"x": 0, "y": 0, "width": frame_w, "height": frame_h},
+                    "children": children or [],
+                }
+            }
+        }
+    }
+
+
+def test_render_emits_measured_source_on_every_element() -> None:
+    payload = _figma_nodes_payload(
+        "1:23",
+        children=[
+            {"id": "1:24", "name": "Title", "type": "TEXT",
+             "absoluteBoundingBox": {"x": 24, "y": 80, "width": 363, "height": 32}},
+        ],
+    )
+    report = _parse_node_layout_payload(payload, "1:23")
+    assert all(e.source == "measured" for e in report.elements)
+
+
+def test_render_coordinates_are_relative_to_root_frame() -> None:
+    payload = _figma_nodes_payload(
+        "1:23",
+        children=[
+            {"id": "1:24", "name": "Title", "type": "TEXT",
+             "absoluteBoundingBox": {"x": 24, "y": 80, "width": 363, "height": 32}},
+        ],
+    )
+    # Root frame is at (0,0) — child should keep its 24/80.
+    report = _parse_node_layout_payload(payload, "1:23")
+    title = report.elements[0]
+    assert title.x == 24.0
+    assert title.y == 80.0
+
+
+def test_render_translates_when_root_is_not_at_origin() -> None:
+    # Figma artboards can sit anywhere on the canvas — child coords
+    # are still in global space and must be normalised.
+    payload = {
+        "nodes": {"5:1": {"document": {
+            "id": "5:1", "name": "Frame", "type": "FRAME",
+            "absoluteBoundingBox": {"x": 500, "y": 200, "width": 360, "height": 800},
+            "children": [
+                {"id": "5:2", "name": "btn_continue", "type": "INSTANCE",
+                 "absoluteBoundingBox": {"x": 516, "y": 280, "width": 328, "height": 56}},
+            ],
+        }}}
+    }
+    report = _parse_node_layout_payload(payload, "5:1")
+    btn = report.elements[0]
+    # 516 - 500 = 16, 280 - 200 = 80
+    assert btn.x == 16.0
+    assert btn.y == 80.0
+
+
+def test_render_role_heuristic_button() -> None:
+    payload = _figma_nodes_payload("1:23", children=[
+        {"id": "1:24", "name": "btn_continue", "type": "INSTANCE",
+         "absoluteBoundingBox": {"x": 0, "y": 0, "width": 100, "height": 56}},
+    ])
+    e = _parse_node_layout_payload(payload, "1:23").elements[0]
+    assert e.role == "primary_action"
+
+
+def test_render_role_heuristic_text() -> None:
+    payload = _figma_nodes_payload("1:23", children=[
+        {"id": "1:24", "name": "Welcome", "type": "TEXT",
+         "absoluteBoundingBox": {"x": 0, "y": 0, "width": 100, "height": 24}},
+    ])
+    e = _parse_node_layout_payload(payload, "1:23").elements[0]
+    assert e.role == "text"
+
+
+def test_render_role_heuristic_icon_square_vector() -> None:
+    payload = _figma_nodes_payload("1:23", children=[
+        {"id": "1:24", "name": "chevron", "type": "VECTOR",
+         "absoluteBoundingBox": {"x": 0, "y": 0, "width": 24, "height": 24}},
+    ])
+    e = _parse_node_layout_payload(payload, "1:23").elements[0]
+    assert e.role == "icon"
+
+
+def test_render_role_heuristic_input_prefix() -> None:
+    payload = _figma_nodes_payload("1:23", children=[
+        {"id": "1:24", "name": "input_email", "type": "FRAME",
+         "absoluteBoundingBox": {"x": 0, "y": 0, "width": 343, "height": 48}},
+    ])
+    e = _parse_node_layout_payload(payload, "1:23").elements[0]
+    assert e.role == "input"
+
+
+def test_render_role_heuristic_decorative_fallback() -> None:
+    payload = _figma_nodes_payload("1:23", children=[
+        {"id": "1:24", "name": "background_blob", "type": "GROUP",
+         "absoluteBoundingBox": {"x": 0, "y": 0, "width": 200, "height": 200}},
+    ])
+    e = _parse_node_layout_payload(payload, "1:23").elements[0]
+    assert e.role == "decorative"
+
+
+def test_render_sanitises_layer_name_to_element_id() -> None:
+    payload = _figma_nodes_payload("1:23", children=[
+        {"id": "1:24", "name": "Btn / Continue", "type": "INSTANCE",
+         "absoluteBoundingBox": {"x": 0, "y": 0, "width": 100, "height": 56}},
+    ])
+    e = _parse_node_layout_payload(payload, "1:23").elements[0]
+    assert e.id == "btn_continue"
+
+
+def test_render_id_collisions_get_suffix() -> None:
+    payload = _figma_nodes_payload("1:23", children=[
+        {"id": "1:24", "name": "Item", "type": "FRAME",
+         "absoluteBoundingBox": {"x": 0, "y": 0, "width": 100, "height": 56}},
+        {"id": "1:25", "name": "Item", "type": "FRAME",
+         "absoluteBoundingBox": {"x": 0, "y": 60, "width": 100, "height": 56}},
+    ])
+    report = _parse_node_layout_payload(payload, "1:23")
+    ids = [e.id for e in report.elements]
+    assert ids[0] == "item"
+    assert ids[1] == "item_2"
+
+
+def test_render_skips_hidden_layers() -> None:
+    payload = _figma_nodes_payload("1:23", children=[
+        {"id": "1:24", "name": "Visible", "type": "TEXT", "visible": True,
+         "absoluteBoundingBox": {"x": 0, "y": 0, "width": 100, "height": 20}},
+        {"id": "1:25", "name": "Hidden", "type": "TEXT", "visible": False,
+         "absoluteBoundingBox": {"x": 0, "y": 30, "width": 100, "height": 20}},
+    ])
+    report = _parse_node_layout_payload(payload, "1:23")
+    ids = {e.id for e in report.elements}
+    assert "visible" in ids
+    assert "hidden" not in ids
+
+
+def test_render_skips_nodes_with_null_bbox() -> None:
+    # Auto-layout placeholders before Figma measures them have null bbox.
+    payload = _figma_nodes_payload("1:23", children=[
+        {"id": "1:24", "name": "ok", "type": "TEXT",
+         "absoluteBoundingBox": {"x": 0, "y": 0, "width": 100, "height": 20}},
+        {"id": "1:25", "name": "skipme", "type": "FRAME",
+         "absoluteBoundingBox": None,
+         "children": [
+             {"id": "1:26", "name": "inner", "type": "TEXT",
+              "absoluteBoundingBox": {"x": 10, "y": 30, "width": 50, "height": 20}},
+         ]},
+    ])
+    report = _parse_node_layout_payload(payload, "1:23")
+    ids = {e.id for e in report.elements}
+    assert "ok" in ids
+    assert "skipme" not in ids
+    # We still walk children of a no-bbox node — inner has a real bbox.
+    assert "inner" in ids
+
+
+def test_render_screen_size_falls_back_to_frame_dims() -> None:
+    payload = _figma_nodes_payload("1:23", frame_w=393, frame_h=852)
+    report = _parse_node_layout_payload(payload, "1:23")
+    assert report.screen_width == 393.0
+    assert report.screen_height == 852.0
+
+
+def test_render_screen_size_explicit_override() -> None:
+    payload = _figma_nodes_payload("1:23", frame_w=1440, frame_h=900)
+    report = _parse_node_layout_payload(
+        payload, "1:23", screen_width=411, screen_height=891,
+    )
+    assert report.screen_width == 411.0
+    assert report.screen_height == 891.0
+
+
+def test_render_raises_on_missing_node_in_response() -> None:
+    payload = {"nodes": {}}
+    with pytest.raises(FigmaApiError) as exc:
+        _parse_node_layout_payload(payload, "9:99")
+    assert "9:99" in str(exc.value)
+
+
+def test_render_raises_on_root_without_bbox() -> None:
+    payload = {"nodes": {"1:23": {"document": {
+        "id": "1:23", "name": "broken", "type": "FRAME",
+        "absoluteBoundingBox": None,
+        "children": [],
+    }}}}
+    with pytest.raises(FigmaApiError) as exc:
+        _parse_node_layout_payload(payload, "1:23")
+    assert "absoluteBoundingBox" in str(exc.value)
+
+
+def test_render_group_hint_propagates_to_children() -> None:
+    payload = _figma_nodes_payload("1:23", children=[
+        {"id": "1:24", "name": "Bottom Nav", "type": "FRAME",
+         "absoluteBoundingBox": {"x": 0, "y": 800, "width": 411, "height": 80},
+         "children": [
+             {"id": "1:25", "name": "nav_home", "type": "INSTANCE",
+              "absoluteBoundingBox": {"x": 0, "y": 800, "width": 103, "height": 56}},
+         ]},
+    ])
+    report = _parse_node_layout_payload(payload, "1:23")
+    home = next(e for e in report.elements if e.id == "nav_home")
+    assert home.group == "bottom_nav"
+
+
+def test_fetch_node_layout_via_mock_http(monkeypatch: pytest.MonkeyPatch) -> None:
+    payload = _figma_nodes_payload("1:23", children=[
+        {"id": "1:24", "name": "Title", "type": "TEXT",
+         "absoluteBoundingBox": {"x": 24, "y": 80, "width": 363, "height": 32}},
+    ])
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v1/files/abc/nodes"
+        assert request.url.params["ids"] == "1:23"
+        assert request.headers.get("X-Figma-Token") == "tok"
+        return httpx.Response(200, json=payload)
+
+    transport = httpx.MockTransport(handler)
+    client = httpx.Client(transport=transport)
+    monkeypatch.setenv("FIGMA_TOKEN", "tok")
+    report = fetch_node_layout("abc", "1:23", http_client=client)
+    assert report.screen_width == 411.0
+    assert report.elements[0].id == "title"
+
+
+# ============================================================================
+# MCP wrapper for figma render
+# ============================================================================
+
+
+def test_mcp_figma_render_wrapper_matches_direct_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import sys
+    server_module = sys.modules["lumo.mcp.server"]
+    payload = _figma_nodes_payload("1:23", children=[
+        {"id": "1:24", "name": "btn_login", "type": "INSTANCE",
+         "absoluteBoundingBox": {"x": 24, "y": 800, "width": 363, "height": 56}},
+    ])
+    monkeypatch.setattr(
+        server_module,
+        "figma_fetch_node_layout",
+        lambda fk, nid, screen_width=None, screen_height=None: _parse_node_layout_payload(
+            payload, nid, screen_width=screen_width, screen_height=screen_height,
+        ),
+    )
+    out = server_module.lumo_figma_render(file_key="abc", node_id="1:23")
+    assert out["screen"]["width"] == 411
+    assert out["elements"][0]["id"] == "btn_login"
+    assert out["elements"][0]["role"] == "primary_action"
+    assert out["elements"][0]["source"] == "measured"
+
+
+def test_mcp_figma_render_normalises_node_id_dash_to_colon(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import sys
+    server_module = sys.modules["lumo.mcp.server"]
+    seen_ids: list[str] = []
+    payload = _figma_nodes_payload("1:23", children=[])
+
+    def fake(file_key: str, node_id: str, *, screen_width=None, screen_height=None):
+        seen_ids.append(node_id)
+        return _parse_node_layout_payload(payload, node_id)
+
+    monkeypatch.setattr(server_module, "figma_fetch_node_layout", fake)
+    server_module.lumo_figma_render(file_key="abc", node_id="1-23")
+    assert seen_ids == ["1:23"]

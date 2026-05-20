@@ -51,9 +51,10 @@ Zed, Codex, or Claude Code with MCP enabled), the same tools are
 also exposed as MCP functions: `lumo_wcag_check`, `lumo_wcag_fix`,
 `lumo_theory_check`, `lumo_parity_diff`, `lumo_source_check_compose`,
 `lumo_source_check_swiftui`, `lumo_audit_scan`, `lumo_figma_diff`,
-`lumo_render_compose`, `lumo_render_swiftui`. Prefer the MCP function
-over spawning a Bash subprocess when available — the structured
-response is already JSON and the user does not see noisy command output.
+`lumo_figma_render`, `lumo_render_compose`, `lumo_render_swiftui`.
+Prefer the MCP function over spawning a Bash subprocess when available
+— the structured response is already JSON and the user does not see
+noisy command output.
 
 ### `lumo-wcag` — WCAG contrast validator + OKLCH auto-correct
 
@@ -787,6 +788,113 @@ $ lumo-figma diff --file-key abc123 --root .
 Exit codes: `0` when nothing is missing from Figma, `1` when at least
 one value crosses the threshold, `2` on argument / API errors.
 
+### `lumo-figma render` — Figma frame → measured layout JSON
+
+When to invoke:
+
+- The user wants to audit a Figma DESIGN (not code) with the
+  cognitive-science tools — Fitts / Hick / Gestalt / reach checks on
+  a Figma frame BEFORE any code ships.
+- The user is comparing iOS and Android frames in Figma and wants
+  `lumo-parity diff` against the design itself.
+- The user pastes a Figma URL and asks "is this layout good for
+  one-handed reach / tap targets / reading flow".
+
+What this tool does:
+
+- Hits Figma's `/v1/files/{file_key}/nodes?ids={node_id}` REST
+  endpoint (one round trip per render).
+- Walks the returned subtree, extracts `absoluteBoundingBox` from
+  every visible node, normalises coordinates to the root frame's
+  origin, and emits the **same Lumo layout JSON schema** the AST
+  evaluator produces.
+- Stamps `source: "measured"` on every element — Figma's bbox is
+  the rendered coordinate after Auto-Layout + constraints resolve,
+  which is honest measurement, not a static guess. This is the
+  highest-trust label in the honesty hierarchy.
+- Pipeline:
+
+  ```
+  lumo-figma render --file-key X --node-id Y --out screen.json
+  lumo-theory check --layout screen.json
+  ```
+
+- Layer names become element IDs (sanitised — spaces and slashes
+  become underscores). Frame names become `group` hints. Role
+  heuristics from name prefix:
+    - `btn_*` / `*Button*` / `INSTANCE` containing "btn" → `primary_action`
+    - `nav_*` / `bottom_nav` / `tab_bar` → `nav_item`
+    - `icon_*` / square `VECTOR` → `icon`
+    - `input_*` / `*field*` → `input`
+    - `TEXT` node → `text`
+    - `RECTANGLE` / `VECTOR` / `ELLIPSE` → `image`
+    - otherwise → `decorative`
+
+Honesty rule (locked):
+
+- `source: "measured"` per element. Figma `absoluteBoundingBox` IS
+  measurement after the engine resolved Auto-Layout and constraints.
+- Hidden layers (`visible: false`) are skipped — they don't ship.
+- Nodes without an `absoluteBoundingBox` (auto-layout placeholders
+  Figma hasn't measured yet) are skipped, not faked. We still walk
+  their children, since each child may have its own bbox.
+
+What this tool **does not** do:
+
+- It does not export images or pixels. Figma already serves images
+  via `/v1/images/`; we don't replicate that.
+- It does not auto-detect role from icon shape / image content. The
+  heuristic is name-based. Users with non-conventional layer names
+  get `decorative` everywhere — rename the layers or accept the
+  fallback.
+- It does NOT pixel-diff a Figma frame against the rendered app.
+  That's `snapshot_input` Phase 3 territory.
+- It does not run a Figma plugin. REST API only.
+
+Auth:
+
+- Reads `FIGMA_TOKEN` from the environment. Never accept tokens via
+  CLI args — they end up in shell history. Same convention as
+  `lumo-figma diff`.
+
+Command:
+
+```bash
+# Bare render with frame ID
+lumo-figma render --file-key abc123 --node-id 1:23
+
+# From a Figma URL (file key + node id parsed automatically)
+lumo-figma render --url "https://www.figma.com/design/abc123/X?node-id=1-23"
+
+# Override the screen size (Figma frame at 1440px → clamp to 411dp)
+lumo-figma render --file-key abc123 --node-id 1:23 \
+                  --screen-width 411 --screen-height 891
+
+# Machine-readable JSON to stdout
+lumo-figma render --file-key abc123 --node-id 1:23 --json
+
+# Write to file (natural input for lumo-theory --layout)
+lumo-figma render --file-key abc123 --node-id 1:23 --out login.json
+```
+
+Worked example — auditing a design before code:
+
+```bash
+$ export FIGMA_TOKEN=figd_…
+
+$ lumo-figma render --file-key abc123 --node-id 1:23 --out login.json
+screen 411x891dp  elements=2  source=measured
+  title          text              x=24.0  y=80.0  w=363.0 h=32.0
+  btn_continue   primary_action    x=24.0  y=800.0 w=363.0 h=56.0
+
+$ lumo-theory check --layout login.json
+OK  no theory_check findings.
+    source: measured
+```
+
+Exit codes: `0` on a successful render with at least one element,
+`2` on auth / API / argument errors or an empty subtree.
+
 ## Decision Tree
 
 | User request shape | Action |
@@ -804,6 +912,8 @@ one value crosses the threshold, `2` on argument / API errors.
 | "I have a Compose / SwiftUI file but no snapshot tests — give me real layout coordinates" / "where do the elements actually land" / "evaluate this layout statically" | `lumo-render compose --file <path>` or `lumo-render swiftui --file <path>`. Produces `ast-resolved` coordinates from the AST. Token references and unknown composables come back as `ast-unresolved` with a reason — never invented numbers. |
 | "Audit the whole project" / "what is our actual spacing scale" / "where are the drift hotspots" | `lumo-audit scan --root <path>`. Pass `--config lumo.config.json` for project-specific scales / excludes. The measured-scale section answers de-facto scale questions that no per-file tool can. |
 | "Does the code match Figma" / "what tokens are missing from the design system" / "is `spacing/lg` actually used" | `lumo-figma diff --file-key <key> --root .` (after `export FIGMA_TOKEN=…`). Matches by value, not name — so a token with a different code name still counts as matched. Treat `unused_in_code` as candidates for review (theme indirection is invisible here), and `missing_from_figma` as promotion candidates. |
+| "Audit this Figma design BEFORE code ships" / "is this Figma frame Fitts-friendly" / "check tap targets in this Figma" | `lumo-figma render --file-key <key> --node-id <id> --out screen.json` then `lumo-theory check --layout screen.json`. Produces `source: "measured"` — highest honesty. Don't ask the user to hand-build a layout JSON when they have the Figma file. |
+| "Compare iOS vs Android Figma frames" | `lumo-figma render` each frame → `lumo-parity diff` the two JSONs. No code required. |
 
 ## Output Format Contract
 

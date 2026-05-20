@@ -11,6 +11,7 @@ Registered functions:
   - lumo_source_check_compose / _swiftui     (per-file AST drift)
   - lumo_audit_scan                          (whole-repo aggregator)
   - lumo_figma_diff                          (Figma token diff)
+  - lumo_figma_render                        (Figma frame → measured layout JSON)
   - lumo_render_compose / _swiftui           (AST layout evaluator)
 
 This is a thin wrapper over the existing Python API — the heavy lifting
@@ -37,6 +38,7 @@ from lumo.audit.core import AuditConfig, scan_repo
 from lumo.figma.core import (
     FigmaApiError,
     diff_against_audit as figma_diff_against_audit,
+    fetch_node_layout as figma_fetch_node_layout,
     fetch_tokens as figma_fetch_tokens,
 )
 from lumo.parity.core import DesignSystemConfig, diff
@@ -572,7 +574,75 @@ def lumo_figma_diff(
 
 
 # ============================================================================
-# Tool 9 — render_compose
+# Tool 9 — figma_render
+# ============================================================================
+
+
+@server.tool()
+def lumo_figma_render(
+    file_key: str,
+    node_id: str,
+    screen_width: float | None = None,
+    screen_height: float | None = None,
+) -> dict[str, Any]:
+    """Render a Figma frame to a Lumo layout JSON — `source: "measured"`.
+
+    Hits Figma's `/v1/files/{file_key}/nodes?ids={node_id}` REST
+    endpoint, walks the returned subtree, and emits the same Lumo
+    layout JSON schema `lumo_theory_check` and `lumo_parity_diff`
+    already consume. Every element carries `source: "measured"` —
+    Figma's `absoluteBoundingBox` is the rendered coordinate after
+    Auto-Layout and constraints resolve, so this is honest measurement,
+    not a static guess.
+
+    Use this tool when the user wants to audit the **design itself**
+    (Fitts / Hick / Gestalt / reach checks on a Figma frame) before
+    any code ships. Pair with `lumo_theory_check` for cognitive-science
+    findings on the resulting JSON.
+
+    Element ids come from Figma layer names (sanitised — spaces and
+    punctuation become underscores). Role heuristics from layer-name
+    prefixes: `btn_*` → `primary_action`, `nav_*` → `nav_item`,
+    `icon_*` → `icon`, `input_*`/`*field*` → `input`; TEXT nodes →
+    `text`; RECTANGLE/VECTOR/ELLIPSE → `image`; otherwise `decorative`.
+    Users override by renaming layers.
+
+    Auth: reads `FIGMA_TOKEN` from the environment. Never accept the
+    token via this argument — env-only convention shared with
+    `lumo_figma_diff`.
+
+    Honesty rules:
+      - Hidden layers (`visible: false`) are skipped.
+      - Nodes without `absoluteBoundingBox` (auto-layout placeholders
+        Figma hasn't measured yet) are skipped, not faked.
+      - Element count + coordinates come directly from the API — we
+        never invent numbers.
+
+    Args:
+        file_key: Figma file key (the `abc123` part of a Figma URL).
+        node_id: Figma node id (e.g. `1:23`). Get it from the URL's
+                 `node-id=` query param (Figma uses `1-23` there;
+                 either form is accepted).
+        screen_width: Optional clamp on the root frame width. Default:
+                      use Figma's own frame width.
+        screen_height: Optional clamp on the root frame height.
+
+    Returns:
+        Dict matching the Lumo layout JSON schema — same shape as
+        `lumo_render_compose` / `lumo_render_swiftui`, with
+        `source: "measured"` everywhere.
+    """
+    report = figma_fetch_node_layout(
+        file_key,
+        node_id.replace("-", ":"),
+        screen_width=screen_width,
+        screen_height=screen_height,
+    )
+    return report.to_dict()
+
+
+# ============================================================================
+# Tool 10 — render_compose
 # ============================================================================
 
 

@@ -1,3 +1,3 @@
 """Lumo — mobile design tools invoked by the Lumo Claude Code skill."""
 
-__version__ = "0.1.2"
+__version__ = "0.2.0"
