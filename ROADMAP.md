@@ -267,8 +267,71 @@ lumo/
    runtime values matter (token resolution, dynamic type, weight
    siblings driven by state). Full design still in
    [docs/design/snapshot-input.md](./docs/design/snapshot-input.md).
-10. **`rules_search`** — hybrid BM25 + local embedding search over rules DB.
-11. **`audit_html`** — optional HTML report renderer for `lumo-audit`.
+10. **`lumo-spec` — design vs. requirements check.**
+    The third missing piece for a complete design audit: today
+    `lumo-figma render` answers "does this layout obey the
+    cognitive-science rules" and `lumo-figma diff` answers "do tokens
+    match", but neither answers "does the design match the product
+    requirements". This tool pulls the requirements from where they
+    actually live — Confluence, Notion, Jira, Linear, or a local
+    Markdown folder — and runs an LLM-backed semantic check against
+    a Lumo layout JSON (from `lumo-figma render` or `lumo-render`).
+
+    **Sources (pluggable):**
+    - Confluence — page id or URL, REST API (`/wiki/rest/api/content`),
+      auth via `CONFLUENCE_TOKEN` env. Plazo's primary surface
+      (MobileDepartment space).
+    - Notion — page / database id, official API,
+      `NOTION_TOKEN` env.
+    - Jira / Linear — single ticket id, REST API + LLM extracts the
+      "design requirements" section.
+    - Local Markdown — `--spec ./prd.md` for offline / monorepo cases.
+
+    **What it does:**
+    - Fetches the spec doc, flattens to text (ADF → markdown for
+      Atlassian, blocks → markdown for Notion).
+    - Takes the layout JSON (Lumo schema, any source label) as
+      "what's currently designed".
+    - LLM-backed semantic comparison: emits findings like
+      *"spec requires a back button — not present in layout"*,
+      *"spec calls for 3 input fields, layout has 5"*,
+      *"spec says hide CTA until form valid — layout shows it
+      always"*.
+    - Honesty rule: findings carry `confidence` field (`high`
+      when textual evidence is direct, `medium` for inferred, `low`
+      for soft heuristics). Never fabricate requirements the spec
+      doesn't state.
+    - Output: same Lumo finding shape as `lumo-theory`; severity
+      derived from spec wording (`must` → high, `should` → medium,
+      `may` → low).
+
+    **CLI shape (proposed):**
+    ```bash
+    lumo-spec check --layout screen.json \
+                    --source confluence --page-id 123456
+    lumo-spec check --layout screen.json \
+                    --source notion --page-id <uuid>
+    lumo-spec check --layout screen.json --spec ./prd.md
+    lumo-spec check --layout screen.json --jira CRDES-1234
+    ```
+
+    **Out of scope (v1):**
+    - No write-back to the spec source — read-only.
+    - No spec authoring / templating. The team writes the spec how
+      they want; Lumo reads it.
+    - No multi-page consolidation in v1 — one spec input per check.
+
+    **Honesty risk to call out early:** LLM-backed checks have higher
+    drift than the deterministic Python tools. This tool's findings
+    must carry a clear "LLM-derived" marker and never claim
+    `source: "measured"`. The `confidence` field is non-negotiable.
+
+    Target: 0.3.0 or 0.4.0 depending on multi-file priority. Design
+    doc to be added at `docs/design/spec-check.md` before
+    implementation.
+
+11. **`rules_search`** — hybrid BM25 + local embedding search over rules DB.
+12. **`audit_html`** — optional HTML report renderer for `lumo-audit`.
     Postponed: would add a templating dep (jinja2 etc.) and Socket will
     flag the new attack surface. The current markdown / JSON output is
     enough for CI consumption; revisit after dogfood.
@@ -291,7 +354,7 @@ lumo/
 
 ### Tools
 
-11. **`snapshot_input` — measured coordinates via capture libraries.**
+13. **`snapshot_input` — measured coordinates via capture libraries.**
     Moved here from Phase 2 once `lumo-render` lands. Ships two thin
     libraries (`lumo-android-capture` for Roborazzi, `lumo-ios-capture`
     for `swift-snapshot-testing`) that emit Lumo-schema JSON next to the
@@ -300,8 +363,8 @@ lumo/
     resolution, dynamic type, weight siblings, lazy lists. Acceptance
     criteria + design in
     [docs/design/snapshot-input.md](./docs/design/snapshot-input.md).
-12. Visual diff: render Compose preview + SwiftUI snapshot → pixel/structural diff.
-13. Per-project memory recall — skill automatically pulls learned patterns into reviews.
+14. Visual diff: render Compose preview + SwiftUI snapshot → pixel/structural diff.
+15. Per-project memory recall — skill automatically pulls learned patterns into reviews.
 
 ### Distribution
 
