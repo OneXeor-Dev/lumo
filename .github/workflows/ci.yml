@@ -249,7 +249,12 @@ jobs:
           #  (b) without FIGMA_TOKEN we exit non-zero with the auth
           #      message — proves the subcommand parses args and goes
           #      through _resolve_token() before any network call.
-          /tmp/e2e-venv/bin/lumo-figma render --help | grep -q 'Render a Figma frame'
+          # 'Render a Figma frame' lives in the PARENT help (subcommand
+          # summary), not in `render --help` (which only shows flags).
+          /tmp/e2e-venv/bin/lumo-figma --help | grep -q 'Render a Figma frame'
+          # Subcommand help must succeed too — confirms the subparser is
+          # registered and parses without crashing.
+          /tmp/e2e-venv/bin/lumo-figma render --help | grep -q 'file-key'
           unset FIGMA_TOKEN
           if /tmp/e2e-venv/bin/lumo-figma render --file-key abc --node-id 1:23; then
             echo "expected non-zero exit (no FIGMA_TOKEN), got 0" && exit 1
