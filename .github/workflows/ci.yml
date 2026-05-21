@@ -241,6 +241,22 @@ jobs:
           out="$(/tmp/e2e-venv/bin/lumo-figma diff --file-key dummy --root examples 2>&1 || true)"
           echo "$out" | grep -q 'FIGMA_TOKEN'
 
+      - name: lumo-figma render help + auth-error smoke
+        run: |
+          # 0.2.0: confirm the render subcommand is wired up. We can't
+          # call the live API in CI, so the smoke is twofold:
+          #  (a) --help works (the subparser is registered),
+          #  (b) without FIGMA_TOKEN we exit non-zero with the auth
+          #      message — proves the subcommand parses args and goes
+          #      through _resolve_token() before any network call.
+          /tmp/e2e-venv/bin/lumo-figma render --help | grep -q 'Render a Figma frame'
+          unset FIGMA_TOKEN
+          if /tmp/e2e-venv/bin/lumo-figma render --file-key abc --node-id 1:23; then
+            echo "expected non-zero exit (no FIGMA_TOKEN), got 0" && exit 1
+          fi
+          out="$(/tmp/e2e-venv/bin/lumo-figma render --file-key abc --node-id 1:23 2>&1 || true)"
+          echo "$out" | grep -q 'FIGMA_TOKEN'
+
   installer:
     name: Node installer
     runs-on: ubuntu-latest

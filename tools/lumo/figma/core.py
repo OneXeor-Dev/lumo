@@ -1,33 +1,38 @@
-"""Figma REST API client + token diff against a `lumo-audit` report.
+"""Figma REST API client — token diff + frame render.
 
-Scope (v1):
-  - **Variables only.** The new Figma token system (2023+). Variables
-    have first-class types (COLOR / FLOAT / STRING / BOOLEAN), modes
-    (light/dark/brand-A), and aliases (one variable resolves to another).
-    They are the source of truth for any team using the modern Figma
-    design-system features.
-  - **COLOR + FLOAT** — these map cleanly to what `lumo-audit` measures
-    in code (hex colours + numeric spacing/radius/size). STRING and
-    BOOLEAN are deferred — they cover typography unit strings and
-    feature flags, neither of which has a clean code-side equivalent yet.
+Two distinct subcommands live here:
 
-Out of scope (v1):
-  - **Styles.** The old Figma token system. Still widely used, but
-    requires a much heavier walk of the node tree to extract values.
-    Will land in a follow-up once variables coverage proves the diff
+  - **`diff`** (shipped 0.0.8) — Figma variables → diff against a
+    `lumo-audit` JSON. Match by VALUE, not name (Figma `spacing/lg`
+    vs code `Dimens.lg.dp` drifts naturally). Three buckets:
+    matched / unused_in_code / missing_from_figma. Variables only —
+    COLOR + FLOAT supported, STRING + BOOLEAN deferred (no clean
+    code-side equivalent yet).
+
+  - **`render`** (shipped 0.2.0) — Figma frame → Lumo layout JSON
+    with `source: "measured"`. Hits `/v1/files/{key}/nodes?ids={id}`,
+    walks the subtree, normalises coordinates to the root frame's
+    origin, emits the same schema `lumo-render compose/swiftui`
+    produce. Unlocks design audit BEFORE code ships — feed the
+    output to `lumo-theory check --layout` for cognitive-science
+    findings on the Figma design itself.
+
+Out of scope (across both subcommands):
+  - **Styles** (the older Figma token system before variables). Heavy
+    node-tree walk; deferred until variables coverage proves the diff
     model.
-  - **Frame-by-frame layout diff.** Comparing screen geometry against
-    Compose / SwiftUI screens is a separate problem; lives behind the
-    `snapshot_input` capture libraries in Phase 2.5.
-  - **Token mapping config.** No `figma.mapping` in `lumo.config.json`
-    yet — we match by VALUE, not by name, so naming convention drift
-    between Figma (`spacing/lg`) and code (`Dimens.lg.dp`) doesn't
-    block the diff. Add a mapping config only if a real user case shows
-    name-aware matching is materially better than value-only.
+  - **Pixel diff** of Figma frame vs the rendered app — runtime
+    territory, lives behind `snapshot_input` capture libraries in
+    Phase 3.
+  - **Token mapping config.** Match by VALUE, not name. Naming-
+    convention drift between Figma and code doesn't block the diff.
+    Add a `figma.mapping` only if a real user case demands name-aware
+    matching beyond value-only.
 
 Auth:
-  - Read `FIGMA_TOKEN` from the environment. We never accept tokens
-    via CLI args — they end up in shell history.
+  - Read `FIGMA_TOKEN` from the environment. Never accept the token
+    via CLI args — they end up in shell history. Same env var serves
+    both subcommands.
 """
 
 from __future__ import annotations

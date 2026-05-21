@@ -10,7 +10,7 @@
       "name": "lumo",
       "description": "WCAG validator with OKLCH auto-correct, cross-platform Compose vs SwiftUI parity diff, and theory-of-design (Fitts / Hick / Gestalt) layout checks. Ships with a CLI, an MCP server, and a Claude Code skill.",
       "source": "./",
-      "version": "0.0.1",
+      "version": "0.2.0",
       "category": "development"
     }
   ]
