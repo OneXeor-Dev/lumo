@@ -743,3 +743,130 @@ def test_role_strict_btn_prefix_still_works() -> None:
     ])
     e = _parse_node_layout_payload(payload, "1:23").elements[0]
     assert e.role == "primary_action"
+
+
+# ============================================================================
+# 0.2.2 — fill extraction (fg/bg on Element)
+# ============================================================================
+
+
+def _solid_fill(hex_rgb: str, alpha: float = 1.0) -> dict[str, Any]:
+    """Helper: build a Figma SOLID fill dict from an #RRGGBB string."""
+    r = int(hex_rgb[1:3], 16) / 255.0
+    g = int(hex_rgb[3:5], 16) / 255.0
+    b = int(hex_rgb[5:7], 16) / 255.0
+    return {"type": "SOLID", "color": {"r": r, "g": g, "b": b, "a": alpha}}
+
+
+def test_text_element_picks_up_fg_and_inherited_bg() -> None:
+    """A TEXT child inside a filled container gets fg from own fill
+    and bg from the ancestor's fill — the same way a reader sees it."""
+    payload = {
+        "nodes": {"1:1": {"document": {
+            "id": "1:1", "name": "screen", "type": "FRAME",
+            "absoluteBoundingBox": {"x": 0, "y": 0, "width": 400, "height": 800},
+            "fills": [_solid_fill("#FFFFFF")],
+            "children": [{
+                "id": "1:2", "name": "Title", "type": "TEXT",
+                "absoluteBoundingBox": {"x": 16, "y": 24, "width": 200, "height": 32},
+                "fills": [_solid_fill("#1A1A1A")],
+            }],
+        }}}
+    }
+    report = _parse_node_layout_payload(payload, "1:1")
+    t = report.elements[0]
+    assert t.fg == "#1A1A1A"
+    assert t.bg == "#FFFFFF"
+
+
+def test_text_inherits_bg_from_nearest_filled_ancestor_not_root() -> None:
+    """When a closer ancestor has a fill, it wins over the root."""
+    payload = {
+        "nodes": {"1:1": {"document": {
+            "id": "1:1", "name": "screen", "type": "FRAME",
+            "absoluteBoundingBox": {"x": 0, "y": 0, "width": 400, "height": 800},
+            "fills": [_solid_fill("#FFFFFF")],  # white root
+            "children": [{
+                "id": "1:2", "name": "card", "type": "FRAME",
+                "absoluteBoundingBox": {"x": 16, "y": 16, "width": 368, "height": 200},
+                "fills": [_solid_fill("#F0F0F0")],  # grey card
+                "children": [{
+                    "id": "1:3", "name": "Label", "type": "TEXT",
+                    "absoluteBoundingBox": {"x": 32, "y": 32, "width": 100, "height": 20},
+                    "fills": [_solid_fill("#000000")],
+                }],
+            }],
+        }}}
+    }
+    report = _parse_node_layout_payload(payload, "1:1")
+    label = next(e for e in report.elements if e.id == "label")
+    assert label.fg == "#000000"
+    assert label.bg == "#F0F0F0"  # card, not the white root
+
+
+def test_gradient_or_image_fill_returns_no_color() -> None:
+    """Non-SOLID fills produce None — we don't lie about an averaged
+    swatch for an unknown gradient or image."""
+    payload = {
+        "nodes": {"1:1": {"document": {
+            "id": "1:1", "name": "screen", "type": "FRAME",
+            "absoluteBoundingBox": {"x": 0, "y": 0, "width": 400, "height": 800},
+            "fills": [{"type": "GRADIENT_LINEAR"}],
+            "children": [{
+                "id": "1:2", "name": "Text", "type": "TEXT",
+                "absoluteBoundingBox": {"x": 0, "y": 0, "width": 200, "height": 20},
+                "fills": [_solid_fill("#1A1A1A")],
+            }],
+        }}}
+    }
+    report = _parse_node_layout_payload(payload, "1:1")
+    t = report.elements[0]
+    assert t.fg == "#1A1A1A"
+    assert t.bg is None  # root fill was a gradient, not exposed
+
+
+def test_transparent_fill_below_threshold_is_skipped() -> None:
+    """A fill with alpha 0.1 doesn't count — the element behaves as if
+    it had no fill, and children inherit from further up."""
+    payload = {
+        "nodes": {"1:1": {"document": {
+            "id": "1:1", "name": "screen", "type": "FRAME",
+            "absoluteBoundingBox": {"x": 0, "y": 0, "width": 400, "height": 800},
+            "fills": [_solid_fill("#FFFFFF")],
+            "children": [{
+                "id": "1:2", "name": "overlay", "type": "FRAME",
+                "absoluteBoundingBox": {"x": 0, "y": 0, "width": 400, "height": 200},
+                "fills": [_solid_fill("#000000", alpha=0.1)],  # nearly transparent
+                "children": [{
+                    "id": "1:3", "name": "T", "type": "TEXT",
+                    "absoluteBoundingBox": {"x": 0, "y": 0, "width": 100, "height": 20},
+                    "fills": [_solid_fill("#1A1A1A")],
+                }],
+            }],
+        }}}
+    }
+    report = _parse_node_layout_payload(payload, "1:1")
+    t = next(e for e in report.elements if e.id == "t")
+    # bg comes from white root because the 0.1-alpha overlay was skipped
+    assert t.bg == "#FFFFFF"
+
+
+def test_non_text_element_records_bg_not_fg() -> None:
+    """Container/shape roles don't get fg (no text to colour) but DO
+    record bg for descendant inheritance and any future use."""
+    payload = {
+        "nodes": {"1:1": {"document": {
+            "id": "1:1", "name": "screen", "type": "FRAME",
+            "absoluteBoundingBox": {"x": 0, "y": 0, "width": 400, "height": 800},
+            "fills": [_solid_fill("#FFFFFF")],
+            "children": [{
+                "id": "1:2", "name": "card", "type": "RECTANGLE",
+                "absoluteBoundingBox": {"x": 16, "y": 16, "width": 368, "height": 200},
+                "fills": [_solid_fill("#F0F0F0")],
+            }],
+        }}}
+    }
+    report = _parse_node_layout_payload(payload, "1:1")
+    card = report.elements[0]
+    assert card.fg is None
+    assert card.bg == "#F0F0F0"

@@ -109,7 +109,7 @@ Goal: `npx @onexeor/lumo init` works end-to-end with four demonstrable tools (wc
 | # | Tool | Status | Notes |
 |---|------|--------|-------|
 | 1 | `wcag_validator` | ✅ Shipped | W3C luminance formula + OKLCH auto-correct that preserves chroma and hue. 28 tests against WebAIM / Material / Apple anchors. |
-| 2 | `theory_check` | ✅ Shipped | Fitts (undersized + relative difficulty for primary), Hick overload, Gestalt proximity, reach rules. 17 tests. Nielsen heuristics intentionally not in the tool (not reliably numeric). |
+| 2 | `theory_check` | ✅ Shipped | Fitts (undersized + relative difficulty for primary), Hick overload, Gestalt proximity (v0.2.1 nested-container skip), reach rules, color contrast (v0.2.2, AA/AAA via lumo-wcag, text-only). Nielsen heuristics intentionally not in the tool (not reliably numeric). |
 | 3 | `platform_parity` | ✅ Shipped | Android (dp) vs iOS (pt) diff. Component presence, sizing diff, design-system token validation. Platform-specific defaults whitelisted (44 pt vs 48 dp etc.). 14 tests. |
 | 4 | `mcp_server` | ✅ Shipped | Stdio MCP server (`lumo-mcp`) exposing every Lumo tool to Claude Code, Cursor, Continue, Aider, Goose, Zed, Codex. As of v0.0.8 it registers 8 functions (`lumo_wcag_check`, `lumo_wcag_fix`, `lumo_theory_check`, `lumo_parity_diff`, `lumo_source_check_compose`, `lumo_source_check_swiftui`, `lumo_audit_scan`, `lumo_figma_diff`) with registration + wrapper-parity tests for each. |
 
@@ -209,6 +209,15 @@ lumo/
      Hidden / null-bbox nodes are skipped, not faked. MCP tool
      `lumo_figma_render`. Design at
      [docs/design/figma-render.md](./docs/design/figma-render.md).
+     - v0.2.1 — tightened role heuristic (INSTANCE + ≥32dp), nested-
+       container Gestalt skip, `--platform ios|android` override.
+     - v0.2.2 — extracts SOLID fills as `fg`/`bg` so the layout JSON
+       carries colour. Unlocks `fitts_color_contrast` in `lumo-theory`.
+   - **`annotate`** ✅ shipped in v0.2.1. Overlays severity-coloured
+     boxes + numbered badges on the Figma frame PNG given a layout
+     JSON and a findings JSON. Auto-fetches the PNG via
+     `/v1/images?ids=` when `--png-in` is omitted. Optional Pillow
+     dependency via the `[viz]` extra.
    - **Out of scope (v1):** Styles (the older Figma token system) need
      a node-tree walk and ship in a later phase. Pixel-diff of Figma
      vs rendered app lives in `snapshot_input`, not here. No mapping

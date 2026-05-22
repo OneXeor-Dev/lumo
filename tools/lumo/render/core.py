@@ -270,6 +270,13 @@ class Element:
     reason: str | None = None
     group: str | None = None
     weight: str | None = None
+    # 0.2.2: foreground / background colour as `#RRGGBB` hex strings.
+    # Populated by lumo-figma render from Figma's `fills`. Compose /
+    # SwiftUI AST renders leave them `None` (no resolved palette).
+    # Token-only / gradient / image fills also produce `None` — same
+    # honesty rule as elsewhere (never invent a number we don't have).
+    fg: str | None = None
+    bg: str | None = None
 
     def to_dict(self) -> dict[str, object]:
         out: dict[str, object] = {"id": self.id, "role": self.role, "source": self.source}
@@ -280,6 +287,8 @@ class Element:
         if self.group is not None: out["group"] = self.group
         if self.weight is not None: out["weight"] = self.weight
         if self.reason is not None: out["reason"] = self.reason
+        if self.fg is not None: out["fg"] = self.fg
+        if self.bg is not None: out["bg"] = self.bg
         return out
 
 

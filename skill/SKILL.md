@@ -145,6 +145,11 @@ Layout JSON schema:
 - `weight` ∈ `primary | secondary | equal` (default `equal`)
 - `group` is a free-form string used by Hick (equal-weight overload) and
   Gestalt proximity.
+- `fg` / `bg` (optional, v0.2.2) — `#RRGGBB` hex colours. When both are
+  present and `role == "text"`, the WCAG luminance contrast check fires
+  (`fitts_color_contrast`): high severity on AA fail (<4.5:1), medium
+  on AAA fail (<7.0:1). `lumo-figma render` populates these from solid
+  fills; gradients and image fills resolve to `None` (honesty rule).
 - `source` reports honesty, ordered from most to least trustworthy:
     - `measured` — coordinates came from a real device or a
       snapshot-testing framework (Espresso, XCUITest, Compose
@@ -502,7 +507,7 @@ What this tool **does not** do:
   showed this is the dominant gap on production screens, where most
   layout is composed from app-specific helpers (`SettingsBlockView`,
   `SmsCodeTimerSection`, etc.). Multi-file resolution is on the
-  0.2.0 roadmap; until then, the tool's value is highest on screens
+  0.3.0 roadmap; until then, the tool's value is highest on screens
   that mostly use standard library composables / SwiftUI built-ins.
 - It does not replace `snapshot_input` (Phase 3) for the last ~20%
   of accuracy. When measured coordinates are critical (final

@@ -791,6 +791,50 @@ def _is_square(node: Mapping[str, Any]) -> bool:
     return bool(abs(w - h) / max(w, h) < 0.1)
 
 
+# Alpha threshold for treating a fill as "really there" for bg purposes.
+# Below this we consider the fill effectively transparent and fall back
+# to the ancestor — same way the eye reads a near-zero opacity rectangle.
+_FILL_ALPHA_THRESHOLD = 0.5
+
+
+def _extract_solid_fill(node: Mapping[str, Any]) -> str | None:
+    """Pick the first visible SOLID fill from a Figma node, return `#RRGGBB`.
+
+    Returns None when:
+      - The node has no `fills`, or all fills are invisible (`visible:
+        false`) or below the alpha threshold.
+      - The fill is a GRADIENT / IMAGE / VIDEO — we can't reduce that
+        to a single contrast-checkable hex without lying. Honesty rule.
+      - The fill colour can't be parsed into r/g/b channels.
+
+    Stroke is intentionally not considered — strokes are decoration
+    edges, not the surface a reader sees the text on top of.
+    """
+    fills = node.get("fills")
+    if not isinstance(fills, list):
+        return None
+    for fill in fills:
+        if not isinstance(fill, dict):
+            continue
+        if fill.get("visible") is False:
+            continue
+        if fill.get("type") != "SOLID":
+            # Gradient / image — return None for the whole node honestly.
+            # Don't accept a lower-priority SOLID below it; the visual
+            # mix is ambiguous and we shouldn't guess.
+            return None
+        # Effective opacity: Figma exposes per-fill `opacity` and
+        # per-channel `a`. We multiply them.
+        color = fill.get("color") or {}
+        alpha = float(color.get("a", 1.0)) * float(fill.get("opacity", 1.0))
+        if alpha < _FILL_ALPHA_THRESHOLD:
+            continue
+        hex_color = _canonicalise_color(color)
+        if hex_color is not None:
+            return hex_color
+    return None
+
+
 @dataclass(frozen=True)
 class _FigmaWalkStats:
     nodes_seen: int = 0
@@ -833,7 +877,16 @@ def _walk_figma_tree(
     skipped_no_bbox = 0
     truncated = False
 
-    def visit(node: Mapping[str, Any], parent_group: str | None, depth: int) -> None:
+    # Capture the root frame's own fill so text directly on the frame
+    # has a background to contrast against.
+    root_bg = _extract_solid_fill(root_node)
+
+    def visit(
+        node: Mapping[str, Any],
+        parent_group: str | None,
+        depth: int,
+        ancestor_bg: str | None,
+    ) -> None:
         nonlocal nodes_seen, skipped_invisible, skipped_no_bbox, truncated
         if depth > _FIGMA_RENDER_MAX_DEPTH:
             truncated = True
@@ -846,6 +899,12 @@ def _walk_figma_tree(
         ntype = node.get("type", "")
         name = (node.get("name") or "").strip()
         name_lower = name.lower().replace(" ", "_").replace("/", "_")
+
+        # Pull this node's own solid fill. For text elements this is
+        # the foreground colour; for container/shape elements it's the
+        # surface a descendant text would sit on. None when the fill is
+        # gradient/image/absent — honesty rule, we don't fake it.
+        own_fill = _extract_solid_fill(node)
 
         # Decide whether THIS node emits an element. The root frame
         # itself isn't emitted (it's the screen), only its descendants.
@@ -869,6 +928,15 @@ def _walk_figma_tree(
                 while eid in seen_ids:
                     eid = f"{base_eid}_{suffix}"
                     suffix += 1
+                # Colour pair semantics:
+                #   - TEXT  node: fg = own fill, bg = nearest ancestor fill
+                #   - other:      fg = None,     bg = own fill or ancestor
+                if ntype == "TEXT":
+                    fg_hex = own_fill
+                    bg_hex = ancestor_bg
+                else:
+                    fg_hex = None
+                    bg_hex = own_fill if own_fill is not None else ancestor_bg
                 elements.append(Element(
                     id=eid,
                     role=role,
@@ -878,6 +946,8 @@ def _walk_figma_tree(
                     h=float(bbox["height"]),
                     source="ast-resolved",  # placeholder; overridden below
                     group=parent_group,
+                    fg=fg_hex,
+                    bg=bg_hex,
                 ))
 
         # Determine the group hint we pass to children.
@@ -886,10 +956,14 @@ def _walk_figma_tree(
         else:
             child_group = parent_group
 
-        for child in node.get("children", []) or []:
-            visit(child, child_group, depth + 1)
+        # Pass down the bg context. If this node has its own solid fill,
+        # children see it as their ancestor_bg; otherwise inherit.
+        child_bg = own_fill if own_fill is not None else ancestor_bg
 
-    visit(root_node, None, depth=0)
+        for child in node.get("children", []) or []:
+            visit(child, child_group, depth + 1, child_bg)
+
+    visit(root_node, None, depth=0, ancestor_bg=root_bg)
 
     # Stamp all elements as `source: "measured"` — Figma's bbox IS
     # measurement, not a static guess. Replace the placeholder we used
@@ -903,6 +977,8 @@ def _walk_figma_tree(
             group=e.group,
             weight=e.weight,
             reason=e.reason,
+            fg=e.fg,
+            bg=e.bg,
         )
         for e in elements
     )

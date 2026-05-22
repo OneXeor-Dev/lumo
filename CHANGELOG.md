@@ -5,6 +5,57 @@ All notable changes to Lumo are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and Lumo adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.2] — 2026-05-22
+
+Color contrast is now a first-class lumo-theory finding. Until this
+release `lumo-figma render` ignored fills, so the cognitive-science
+audit caught geometry (tap target, Fitts, Hick, Gestalt, reach) but
+missed the single most actionable a11y defect a designer can fix:
+unreadable text. 0.2.2 closes that loop.
+
+### Added
+
+- **Figma fill extraction.** `lumo-figma render` now reads each
+  node's `fills` array and records:
+    - `fg` = the element's own solid fill (typically used for `TEXT`
+      nodes).
+    - `bg` = the nearest filled ancestor's solid fill (the surface
+      the element sits on).
+
+  Only `SOLID` fills with effective alpha ≥ 0.5 are captured. Gradients
+  and image fills resolve to `None` — the honesty rule: if the
+  surface is non-uniform, lumo refuses to fake a single colour and
+  the contrast check politely skips. Hex colours are emitted as
+  uppercase `#RRGGBB`.
+
+- **`fitts_color_contrast` check in `lumo-theory`.** For every `text`
+  element with both `fg` and `bg` populated, runs WCAG luminance
+  contrast (via `lumo.wcag.core.check_pair`) against AA + AAA at
+  the stricter "normal" size threshold:
+    - **high** — fails WCAG AA (<4.5:1). The bar most teams hold
+      themselves to; surfaces as a real defect.
+    - **medium** — passes AA but fails AAA (≥4.5:1, <7.0:1).
+      Acceptable, but tighter is better for primary content.
+    - Passing AAA → silent.
+
+  The recommendation includes the exact `lumo-wcag fix --fg … --bg …`
+  invocation that auto-corrects the pair in OKLCH space.
+
+### Notes
+
+- **Dogfood delta on MoneyMan Card 2026 / 232:2264 (`--platform android`):**
+    - HIGH: 5 → **12** (+7 new `fitts_color_contrast` findings).
+      Plazo brand green `#369F02` on white renders at 3.43:1 — fails
+      WCAG AA across all 5 amount labels (`300`, `30`, `d`,
+      `text_4`, `label_text`). Two CTA labels at `#FFFFFF` on
+      `#E36602` (Plazo orange) also fail AA.
+    - MEDIUM: 137 → **140** (+3 AAA-fails for `descr*` / `initial`).
+    - Total: 142 → 152.
+
+- **Test suite: 276 → 287** (+5 fill-extraction + 6 contrast-check).
+  mypy strict clean (25 modules, unchanged).
+- Phase 3 multi-file AST resolution still next on roadmap (0.3.0).
+
 ## [0.2.1] — 2026-05-22
 
 Dogfood-driven patch on 0.2.0. Ran `lumo-figma render` + `lumo-theory

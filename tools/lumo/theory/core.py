@@ -11,7 +11,9 @@ import math
 from dataclasses import dataclass, field
 from typing import Literal
 
-Confidence = Literal["measured", "code-estimated", "description-estimated"]
+from lumo.wcag.core import check_pair
+
+Confidence = Literal["measured", "ast-resolved", "code-estimated", "description-estimated"]
 Severity = Literal["critical", "high", "medium", "low", "info"]
 Role = Literal[
     "primary_action",
@@ -69,6 +71,11 @@ class Element:
     h: float
     group: str | None = None  # logical group for Gestalt proximity check
     weight: Literal["primary", "secondary", "equal"] = "equal"
+    # 0.2.2: foreground/background as `#RRGGBB`. Populated by
+    # lumo-figma render (Figma fills). Triggers the WCAG contrast check
+    # when both are present and role is `text`.
+    fg: str | None = None
+    bg: str | None = None
 
     @property
     def cx(self) -> float:
@@ -439,12 +446,68 @@ def _check_reach(layout: Layout) -> list[Finding]:
 # ============================================================================
 
 
+def _check_color_contrast(layout: Layout) -> list[Finding]:
+    """For every `text` element with both `fg` and `bg` populated,
+    run WCAG luminance contrast against AA + AAA thresholds.
+
+    0.2.2: this is the bridge between layout data (lumo-figma render)
+    and the WCAG tool. Without it, design audit catches geometry but
+    misses unreadable text — and unreadable text is the most common
+    actionable a11y defect a designer can fix.
+
+    Severity ladder:
+      - high   — fails WCAG AA (the bar most teams hold themselves to).
+      - medium — passes AA but fails AAA (acceptable, but tighter is
+                 better for primary content).
+    """
+    findings: list[Finding] = []
+    for el in layout.elements:
+        if el.role != "text":
+            continue
+        if not el.fg or not el.bg:
+            continue
+        # WCAG large text = ≥18pt or ≥14pt bold. We don't have font
+        # metrics from Figma yet, so assume "normal" — the stricter
+        # threshold. This is the honesty rule: when unsure, apply the
+        # tighter rule rather than under-report.
+        aa = check_pair(el.fg, el.bg, "AA", "normal")
+        aaa = check_pair(el.fg, el.bg, "AAA", "normal")
+        if aa.passes:
+            if aaa.passes:
+                continue  # all good
+            severity: Severity = "medium"
+            reason = "AAA"
+        else:
+            severity = "high"
+            reason = "AA"
+        findings.append(Finding(
+            check="fitts_color_contrast",
+            severity=severity,
+            confidence=layout.source,
+            elements=(el.id,),
+            message=(
+                f"Text element '{el.id}' has {aa.ratio:.2f}:1 contrast "
+                f"between {el.fg} on {el.bg} — fails WCAG {reason} "
+                f"(needs ≥4.5:1 for AA / ≥7.0:1 for AAA)."
+            ),
+            recommendation=(
+                "Darken the foreground, lighten the background, or run "
+                "`lumo-wcag fix --fg "
+                f"'{el.fg}' --bg '{el.bg}'` for an auto-correction that "
+                "preserves hue and chroma (OKLCH-based)."
+            ),
+            metric={"ratio": aa.ratio, "required": 4.5 if reason == "AA" else 7.0},
+        ))
+    return findings
+
+
 def check_layout(layout: Layout) -> ReportSummary:
     findings: list[Finding] = []
     findings.extend(_check_fitts(layout))
     findings.extend(_check_hick(layout))
     findings.extend(_check_gestalt_proximity(layout))
     findings.extend(_check_reach(layout))
+    findings.extend(_check_color_contrast(layout))
 
     severity_order: dict[Severity, int] = {
         "critical": 0,

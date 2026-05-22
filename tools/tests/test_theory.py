@@ -282,3 +282,100 @@ def test_gestalt_still_fires_on_true_sibling_groups_too_close() -> None:
     assert len(proximity_findings) >= 1, (
         "Genuine sibling-group proximity violation should still fire"
     )
+
+
+# ============================================================================
+# Check 5 — Color contrast (0.2.2)
+# ============================================================================
+
+
+def test_contrast_check_fires_high_when_text_fails_aa() -> None:
+    # #888888 on #FFFFFF ≈ 3.5:1 — fails AA (needs 4.5:1).
+    layout = _layout([
+        Element(
+            id="grey_label", role="text", x=24, y=200, w=300, h=20,
+            fg="#888888", bg="#FFFFFF",
+        ),
+    ])
+    report = check_layout(layout)
+    contrast = [f for f in report.findings if f.check == "fitts_color_contrast"]
+    assert len(contrast) == 1
+    assert contrast[0].severity == "high"
+    assert contrast[0].elements == ("grey_label",)
+    assert contrast[0].metric["required"] == 4.5
+
+
+def test_contrast_check_fires_medium_when_text_passes_aa_but_fails_aaa() -> None:
+    # #595959 on #FFFFFF ≈ 7.0:1 — passes AA, sits right at AAA boundary.
+    # Use a slightly lighter grey to ensure we land between thresholds.
+    # #6E6E6E on #FFFFFF ≈ 5.0:1 — passes AA (≥4.5), fails AAA (<7.0).
+    layout = _layout([
+        Element(
+            id="caption", role="text", x=24, y=200, w=300, h=20,
+            fg="#6E6E6E", bg="#FFFFFF",
+        ),
+    ])
+    report = check_layout(layout)
+    contrast = [f for f in report.findings if f.check == "fitts_color_contrast"]
+    assert len(contrast) == 1
+    assert contrast[0].severity == "medium"
+    assert contrast[0].metric["required"] == 7.0
+
+
+def test_contrast_check_silent_when_text_passes_aaa() -> None:
+    # #000000 on #FFFFFF = 21:1 — passes both AA and AAA.
+    layout = _layout([
+        Element(
+            id="body", role="text", x=24, y=200, w=300, h=20,
+            fg="#000000", bg="#FFFFFF",
+        ),
+    ])
+    report = check_layout(layout)
+    assert not any(f.check == "fitts_color_contrast" for f in report.findings)
+
+
+def test_contrast_check_skips_when_fg_or_bg_missing() -> None:
+    # Honesty rule: no fill → no check (no false-positive on transparent text).
+    layout = _layout([
+        Element(id="fg_only", role="text", x=24, y=200, w=300, h=20, fg="#000000"),
+        Element(id="bg_only", role="text", x=24, y=240, w=300, h=20, bg="#FFFFFF"),
+        Element(id="neither", role="text", x=24, y=280, w=300, h=20),
+    ])
+    report = check_layout(layout)
+    assert not any(f.check == "fitts_color_contrast" for f in report.findings)
+
+
+def test_contrast_check_ignores_non_text_roles() -> None:
+    # Buttons / icons / images get fg/bg from Figma walker too but contrast
+    # check is text-only (button surface contrast is a different question).
+    layout = _layout([
+        Element(
+            id="btn", role="primary_action", x=24, y=800, w=363, h=56,
+            weight="primary", fg="#888888", bg="#FFFFFF",
+        ),
+        Element(
+            id="icon", role="icon_button", x=350, y=24, w=48, h=48,
+            fg="#888888", bg="#FFFFFF",
+        ),
+    ])
+    report = check_layout(layout)
+    assert not any(f.check == "fitts_color_contrast" for f in report.findings)
+
+
+def test_contrast_finding_recommendation_mentions_lumo_wcag_fix() -> None:
+    """The recommendation should hand the user the exact lumo-wcag CLI
+    invocation that auto-fixes their colour pair — closing the loop from
+    audit finding → actionable fix in one copy-paste."""
+    layout = _layout([
+        Element(
+            id="bad", role="text", x=24, y=200, w=300, h=20,
+            fg="#888888", bg="#FFFFFF",
+        ),
+    ])
+    report = check_layout(layout)
+    contrast = [f for f in report.findings if f.check == "fitts_color_contrast"]
+    assert contrast
+    rec = contrast[0].recommendation
+    assert "lumo-wcag fix" in rec
+    assert "#888888" in rec
+    assert "#FFFFFF" in rec

@@ -69,6 +69,8 @@ def _layout_from_dict(data: dict[str, Any]) -> Layout:
                 h=float(e["h"]),
                 group=e.get("group"),
                 weight=e.get("weight", "equal"),
+                fg=e.get("fg"),
+                bg=e.get("bg"),
             )
         )
     return Layout(
