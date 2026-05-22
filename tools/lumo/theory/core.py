@@ -281,10 +281,37 @@ def _check_hick(layout: Layout) -> list[Finding]:
 # ============================================================================
 
 
+def _group_bbox(members: list[Element]) -> tuple[float, float, float, float]:
+    """Axis-aligned bounding box covering every member of a group."""
+    x_min = min(m.x for m in members)
+    y_min = min(m.y for m in members)
+    x_max = max(m.x + m.w for m in members)
+    y_max = max(m.y + m.h for m in members)
+    return x_min, y_min, x_max, y_max
+
+
+def _bbox_contains(outer: tuple[float, float, float, float],
+                   inner: tuple[float, float, float, float]) -> bool:
+    """True when `inner` lies entirely inside `outer` (≥0.5dp tolerance)."""
+    tol = 0.5
+    return (outer[0] - tol <= inner[0]
+            and outer[1] - tol <= inner[1]
+            and outer[2] + tol >= inner[2]
+            and outer[3] + tol >= inner[3])
+
+
 def _check_gestalt_proximity(layout: Layout) -> list[Finding]:
     """For each pair of groups, the smallest distance between groups must be
     larger than the largest distance within either group. Otherwise the user
     cannot tell where one group ends and the next begins.
+
+    0.2.1 nested-container fix: Figma frames are deeply hierarchical
+    (`header` → `container` → `subheader` → `calculator` → …). The
+    naïve pairwise distance check treated nested containers as siblings
+    and produced ~200 false-positive findings on a single MoneyMan
+    screen. We now skip pairs where one group's bbox fully contains the
+    other — those aren't competing groups, they're nesting levels. The
+    eye reads them as a single hierarchy, not a Gestalt conflict.
     """
     groups: dict[str, list[Element]] = {}
     for el in layout.elements:
@@ -294,11 +321,22 @@ def _check_gestalt_proximity(layout: Layout) -> list[Finding]:
     findings: list[Finding] = []
     group_keys = [k for k, v in groups.items() if len(v) >= 2]
 
+    # Pre-compute bboxes once.
+    bboxes = {k: _group_bbox(groups[k]) for k in group_keys}
+
     for i, g1 in enumerate(group_keys):
         members1 = groups[g1]
+        bbox1 = bboxes[g1]
         max_intra = max(_distance(a, b) for a in members1 for b in members1 if a.id != b.id)
         for g2 in group_keys[i + 1 :]:
             members2 = groups[g2]
+            bbox2 = bboxes[g2]
+            # Nested containers — skip. One group's bbox contains the
+            # other ⇒ the inner group is a sub-structure of the outer,
+            # not a competing peer. The naïve distance check would flag
+            # every level of a Scaffold > Column > Card hierarchy.
+            if _bbox_contains(bbox1, bbox2) or _bbox_contains(bbox2, bbox1):
+                continue
             min_inter = min(_distance(a, b) for a in members1 for b in members2)
             if min_inter <= max_intra:
                 findings.append(

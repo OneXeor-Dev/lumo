@@ -316,6 +316,55 @@ def main(argv: list[str] | None = None) -> int:
         help="Also write the layout JSON to this file (always JSON, regardless of --json).",
     )
 
+    annotate = sub.add_parser(
+        "annotate",
+        help="Overlay lumo-theory findings on a Figma frame PNG (requires Pillow).",
+    )
+    annotate.add_argument(
+        "--file-key", default=None,
+        help="Figma file key. Together with --node-id, lets us auto-export the PNG.",
+    )
+    annotate.add_argument(
+        "--node-id", default=None,
+        help="Figma node id (e.g. 1:23). With --file-key triggers an auto PNG fetch.",
+    )
+    annotate.add_argument(
+        "--url", default=None,
+        help="Or pass a Figma URL — file key + node id parsed automatically.",
+    )
+    annotate.add_argument(
+        "--png-in", default=None,
+        help=(
+            "Local PNG to annotate. If omitted, we fetch via /v1/images using "
+            "--file-key + --node-id (or --url)."
+        ),
+    )
+    annotate.add_argument(
+        "--layout", required=True,
+        help="Path to a lumo-figma render --json output (the layout JSON).",
+    )
+    annotate.add_argument(
+        "--findings", required=True,
+        help="Path to a lumo-theory --json output (the findings JSON).",
+    )
+    annotate.add_argument(
+        "--out", required=True,
+        help="Destination PNG path.",
+    )
+    annotate.add_argument(
+        "--scale", type=float, default=2.0,
+        help="Multiplier from layout coords to PNG pixels (default 2 — Figma exports at scale=2).",
+    )
+    annotate.add_argument(
+        "--severity",
+        action="append",
+        default=None,
+        help=(
+            "Which severities to draw. Pass multiple times. Default: only "
+            "HIGH + CRITICAL. Example: --severity high --severity medium."
+        ),
+    )
+
     args = parser.parse_args(argv)
 
     if args.cmd == "diff":
@@ -388,7 +437,69 @@ def main(argv: list[str] | None = None) -> int:
             Path(args.out).write_text(json.dumps(payload, indent=2), encoding="utf-8")
         return 0 if render_report.elements else 2
 
+    if args.cmd == "annotate":
+        return _run_annotate(args)
+
     return 2
+
+
+def _run_annotate(args: argparse.Namespace) -> int:
+    """Handler for `lumo-figma annotate`. Auto-fetches the PNG from Figma
+    when --png-in is absent and --file-key/--node-id (or --url) are
+    provided.
+    """
+    from lumo.figma.annotate import annotate_png
+    from lumo.figma.core import download_node_image
+
+    file_key = args.file_key
+    node_id = args.node_id
+    if args.url:
+        parsed = parse_figma_url(args.url)
+        file_key = file_key or parsed.file_key
+        node_id = node_id or parsed.node_id
+
+    # Source PNG — local or auto-fetch.
+    png_in = args.png_in
+    if png_in is None:
+        if not file_key or not node_id:
+            print(
+                "Either pass --png-in <path>, or --file-key + --node-id (or --url) "
+                "to auto-fetch the PNG via /v1/images.",
+                file=sys.stderr,
+            )
+            return 2
+        try:
+            tmp = Path(args.out).with_suffix(".source.png")
+            download_node_image(file_key, node_id, tmp, scale=args.scale)
+            png_in = str(tmp)
+        except FigmaApiError as e:
+            print(f"figma: {e}", file=sys.stderr)
+            return 2
+
+    # Load layout + findings JSON.
+    try:
+        layout = json.loads(Path(args.layout).read_text(encoding="utf-8"))
+        findings_payload = json.loads(Path(args.findings).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        print(f"failed to read layout/findings JSON: {e}", file=sys.stderr)
+        return 2
+
+    findings = findings_payload.get("findings", [])
+    severities = args.severity or ["critical", "high"]
+    try:
+        out_path = annotate_png(
+            png_in=png_in,
+            layout=layout,
+            findings=findings,
+            png_out=args.out,
+            scale=args.scale,
+            severities=severities,
+        )
+    except ImportError as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    print(f"OK  annotated PNG → {out_path}")
+    return 0
 
 
 def _print_render_text(report: Any) -> None:

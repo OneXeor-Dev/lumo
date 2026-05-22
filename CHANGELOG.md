@@ -5,6 +5,98 @@ All notable changes to Lumo are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and Lumo adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] — 2026-05-22
+
+Dogfood-driven patch on 0.2.0. Ran `lumo-figma render` + `lumo-theory
+check` on a real Plazo design (MoneyMan Card 2026 / calculator screen,
+node 232:2264) and surfaced three signal-quality problems:
+
+1. **Role heuristic over-classified `button*` layer names** — 5 of 7
+   HIGH findings on the dogfood frame were false positives where the
+   layer name contained "button" but the element was a 16dp decoration
+   or a 32dp wrapper.
+2. **Gestalt proximity false-positives in nested hierarchies** —
+   207 MEDIUM findings, most pairing an outer container with one of
+   its own descendants. The eye reads them as nesting, not as
+   competing peers.
+3. **No platform override on the tap-target rule** — the calculator's
+   44dp value fields are fine on iOS (HIG 44pt) but undersized on
+   Android (Material 48dp). Lumo had no way to say "audit this Figma
+   as iOS."
+
+Plus one new feature surfaced from the same dogfood: annotated PNGs
+are dramatically more useful than JSON for design conversations —
+shipping that as a first-class subcommand.
+
+### Added
+
+- **`lumo-figma annotate` subcommand.** Overlays lumo-theory findings
+  on a Figma frame PNG and writes the result to disk. End-to-end:
+
+  ```bash
+  lumo-figma render --url <figma> --json > screen.json
+  lumo-theory check --layout screen.json --json > findings.json
+  lumo-figma annotate \
+    --url <figma> --layout screen.json --findings findings.json \
+    --out annotated.png
+  ```
+
+  Auto-fetches the PNG via `/v1/images?ids=&scale=2&format=png` when
+  `--png-in` is omitted. Default draws CRITICAL + HIGH severities;
+  pass `--severity medium` (repeatable) to widen. Severity-coloured
+  translucent boxes + numbered badges; multiple findings on the same
+  element collapse to one box.
+
+  Pillow is a new optional dep — install via `pip install
+  'lumo-mobile[viz]'`. The annotate subcommand surfaces a clear
+  install hint if Pillow isn't present; the core render / theory /
+  diff pipeline stays Pillow-free.
+
+- **`lumo.figma.core.fetch_node_image_url` / `download_node_image`** —
+  public API for the PNG fetch. Two round trips (Figma → S3 URL → PNG
+  bytes). Useful in scripts that want to do their own annotation.
+
+- **`lumo-theory check --platform ios|android`** — overrides the
+  layout JSON's `screen.unit` before running the checks. `ios` →
+  `pt` → 44pt tap-target minimum (Apple HIG). `android` → `dp` →
+  48dp (Material). Without the flag we trust the JSON. Coordinates
+  are NOT scaled — dp and pt are physically equal on screen, only
+  the unit label changes.
+
+### Changed
+
+- **Tightened role heuristic in `lumo-figma render`.** Two new rules
+  for classifying a node as `primary_action`:
+    - Must be an `INSTANCE` (real component), OR have an exact
+      `btn_*` / `button_*` prefix. Loose `*button*` substring no
+      longer matches.
+    - Shorter side ≥ 32dp. Anything smaller is decorative — even the
+      most permissive platform tap-target minimum is 44pt iOS.
+  Borderline 44dp elements are still flagged (that's the iOS HIG min,
+  the real design bug); 16–24dp decorations no longer trip Fitts.
+
+- **Gestalt proximity now skips nested-container pairs.** When one
+  group's bbox fully contains the other's (with 0.5dp tolerance),
+  they're treated as a nesting hierarchy, not as competing peers.
+  Real-world dogfood reduction: 207 → 137 MEDIUM findings on the
+  MoneyMan frame, all the removed ones being Scaffold → Card →
+  Section nesting artefacts.
+
+### Notes
+
+- **Dogfood delta on MoneyMan Card 2026 / 232:2264:**
+    - HIGH (Fitts): 7 → **5** (-29%). Removed: 3 false-positive
+      "button*" decorations at 16/24/24dp. Surviving: 2 real bugs
+      (value_field at 44dp on Android), 1 borderline (32dp wrapper).
+      With `--platform ios`: drops to **3** (44dp is fine on HIG).
+    - MEDIUM (gestalt): 207 → **137** (-34%). Removed: nested
+      container pairs.
+    - Total: 214 → 142 (-34%).
+
+- **Test suite: 269 → 276** (+5 role-heuristic + 2 gestalt-nesting).
+  mypy strict clean (24 → 25 modules after adding `annotate.py`).
+- Phase 3 multi-file AST resolution still next on roadmap (0.3.0).
+
 ## [0.2.0] — 2026-05-18
 
 Lumo can now audit the **design itself** — not just the code. New

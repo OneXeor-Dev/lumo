@@ -132,13 +132,27 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     check.add_argument("--json", action="store_true", help="Emit JSON.")
+    check.add_argument(
+        "--platform",
+        choices=["android", "ios"],
+        default=None,
+        help=(
+            "Override the screen unit before checks. `android` forces dp + "
+            "48dp Material tap target; `ios` forces pt + 44pt Apple HIG. "
+            "Without this flag we trust the layout JSON's `screen.unit` "
+            "field. Useful when rendering a Figma frame (which defaults to "
+            "dp regardless of platform) and you want to apply HIG instead."
+        ),
+    )
 
     args = parser.parse_args(argv)
 
     if args.cmd == "check":
         if args.from_dir:
-            return _run_from_dir(args.from_dir, json_output=args.json)
+            return _run_from_dir(args.from_dir, json_output=args.json, platform=args.platform)
         layout = _load_layout(args.layout)
+        if args.platform:
+            layout = _override_platform(layout, args.platform)
         report = check_layout(layout)
         if args.json:
             _print_json(report)
@@ -149,7 +163,20 @@ def main(argv: list[str] | None = None) -> int:
     return 2
 
 
-def _run_from_dir(dir_path: str, *, json_output: bool) -> int:
+def _override_platform(layout: Layout, platform: str) -> Layout:
+    """Rebuild a Layout with a forced unit per the user's --platform flag.
+
+    Coordinates are NOT scaled — we trust that dp and pt are physically
+    equal on screen (which they are, both density-independent). Only
+    the unit label changes, which in turn drives `Screen.min_tap_target`
+    via `unit == "dp"` returning 48dp vs `"pt"` returning 44pt.
+    """
+    unit: Any = "dp" if platform == "android" else "pt"
+    new_screen = Screen(width=layout.screen.width, height=layout.screen.height, unit=unit)
+    return Layout(screen=new_screen, elements=layout.elements, source=layout.source)
+
+
+def _run_from_dir(dir_path: str, *, json_output: bool, platform: str | None = None) -> int:
     """Run theory_check against every layout JSON in a directory.
 
     Returns 0 if no file had findings, 1 if any file did, 2 if the
@@ -172,6 +199,8 @@ def _run_from_dir(dir_path: str, *, json_output: bool) -> int:
         except (KeyError, ValueError) as exc:
             print(f"SKIP  {f.name}: {exc}", file=sys.stderr)
             continue
+        if platform:
+            layout = _override_platform(layout, platform)
         report = check_layout(layout)
         if json_output:
             aggregated.append({

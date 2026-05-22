@@ -236,3 +236,49 @@ def test_well_designed_screen_yields_no_findings() -> None:
         "Well-designed screen should produce no findings, got: "
         f"{[f.check for f in report.findings]}"
     )
+
+
+def test_gestalt_skips_nested_container_pairs() -> None:
+    """0.2.1: nested containers (outer fully containing inner) must NOT
+    trigger gestalt_proximity_violation. Real Plazo dogfood revealed
+    207 false positives from Scaffold > Column > Card hierarchies. The
+    eye reads them as nesting, not as competing peers."""
+    elements = [
+        # Outer "container" group spans the whole screen
+        Element(id="outer_a", role="decorative", x=0,  y=0,  w=400, h=800, group="container"),
+        Element(id="outer_b", role="decorative", x=0,  y=0,  w=400, h=800, group="container"),
+        # Inner "card" group sits ENTIRELY inside outer
+        Element(id="inner_a", role="list_item",  x=16, y=16, w=368, h=120, group="card"),
+        Element(id="inner_b", role="list_item",  x=16, y=16, w=368, h=120, group="card"),
+    ]
+    report = check_layout(_layout(elements))
+    proximity_findings = [f for f in report.findings if f.check == "gestalt_proximity_violation"]
+    assert proximity_findings == [], (
+        "Nested container pair should be skipped, got: "
+        f"{[(f.check, f.elements) for f in proximity_findings]}"
+    )
+
+
+def test_gestalt_still_fires_on_true_sibling_groups_too_close() -> None:
+    """Regression guard: real Gestalt violations between SIBLING groups
+    (neither containing the other) still trip the check after the
+    nested-skip fix.
+
+    Geometry: each group spans 400dp vertically (max_intra by centroid
+    ≈ 400). The two groups sit side-by-side with only 20dp gap (min_inter
+    ≈ 20). Neither bbox contains the other → nested-skip does not apply,
+    and the proximity check fires.
+    """
+    elements = [
+        # Left group: members 400dp apart vertically
+        Element(id="left_a",  role="decorative", x=0,  y=0,   w=10, h=10, group="left"),
+        Element(id="left_b",  role="decorative", x=0,  y=400, w=10, h=10, group="left"),
+        # Right group: parallel, 20dp to the right
+        Element(id="right_a", role="decorative", x=20, y=0,   w=10, h=10, group="right"),
+        Element(id="right_b", role="decorative", x=20, y=400, w=10, h=10, group="right"),
+    ]
+    report = check_layout(_layout(elements))
+    proximity_findings = [f for f in report.findings if f.check == "gestalt_proximity_violation"]
+    assert len(proximity_findings) >= 1, (
+        "Genuine sibling-group proximity violation should still fire"
+    )

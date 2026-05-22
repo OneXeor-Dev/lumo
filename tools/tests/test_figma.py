@@ -639,8 +639,8 @@ def test_fetch_node_layout_via_mock_http(monkeypatch: pytest.MonkeyPatch) -> Non
 def test_mcp_figma_render_wrapper_matches_direct_call(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import sys
-    server_module = sys.modules["lumo.mcp.server"]
+    import importlib
+    server_module = importlib.import_module("lumo.mcp.server")
     payload = _figma_nodes_payload("1:23", children=[
         {"id": "1:24", "name": "btn_login", "type": "INSTANCE",
          "absoluteBoundingBox": {"x": 24, "y": 800, "width": 363, "height": 56}},
@@ -662,8 +662,8 @@ def test_mcp_figma_render_wrapper_matches_direct_call(
 def test_mcp_figma_render_normalises_node_id_dash_to_colon(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import sys
-    server_module = sys.modules["lumo.mcp.server"]
+    import importlib
+    server_module = importlib.import_module("lumo.mcp.server")
     seen_ids: list[str] = []
     payload = _figma_nodes_payload("1:23", children=[])
 
@@ -674,3 +674,72 @@ def test_mcp_figma_render_normalises_node_id_dash_to_colon(
     monkeypatch.setattr(server_module, "figma_fetch_node_layout", fake)
     server_module.lumo_figma_render(file_key="abc", node_id="1-23")
     assert seen_ids == ["1:23"]
+
+
+# ============================================================================
+# 0.2.1 — role heuristic tightening
+# ============================================================================
+
+
+def test_role_button_decorative_under_32dp_not_primary_action() -> None:
+    """A layer named 'button_3' that's only 16dp tall is not a tap target —
+    it's decoration. Must NOT trip primary_action / Fitts.
+    """
+    payload = _figma_nodes_payload("1:23", children=[
+        {"id": "1:24", "name": "button_3", "type": "FRAME",
+         "absoluteBoundingBox": {"x": 0, "y": 0, "width": 86, "height": 16}},
+    ])
+    e = _parse_node_layout_payload(payload, "1:23").elements[0]
+    assert e.role != "primary_action", f"expected non-button role, got {e.role}"
+
+
+def test_role_button_borderline_44dp_still_primary_action() -> None:
+    """The real bug the dogfood revealed: a 44dp value field is undersized
+    on Android but Lumo MUST still classify it as primary_action so the
+    finding fires. 32dp gate keeps borderline real buttons in the net.
+    """
+    payload = _figma_nodes_payload("1:23", children=[
+        {"id": "1:24", "name": "btn_submit", "type": "INSTANCE",
+         "absoluteBoundingBox": {"x": 0, "y": 0, "width": 343, "height": 44}},
+    ])
+    e = _parse_node_layout_payload(payload, "1:23").elements[0]
+    assert e.role == "primary_action"
+
+
+def test_role_loose_button_substring_no_longer_matches() -> None:
+    """0.2.1: 'flutterbutton_2' used to match because of loose `"button" in
+    name_lower` substring. Now requires INSTANCE type OR strict btn_*
+    prefix. Loose substring on a plain FRAME → decorative/image fallback.
+    """
+    payload = _figma_nodes_payload("1:23", children=[
+        {"id": "1:24", "name": "flutterbutton_2", "type": "FRAME",
+         "absoluteBoundingBox": {"x": 0, "y": 0, "width": 380, "height": 32}},
+    ])
+    e = _parse_node_layout_payload(payload, "1:23").elements[0]
+    assert e.role != "primary_action"
+
+
+def test_role_instance_with_button_substring_still_matches() -> None:
+    """INSTANCE type is the strong signal — even a name like 'PrimaryCTA'
+    without 'btn' in it is treated as primary_action when it's a real
+    component instance (and big enough).
+    """
+    payload = _figma_nodes_payload("1:23", children=[
+        {"id": "1:24", "name": "PrimaryCTA", "type": "INSTANCE",
+         "absoluteBoundingBox": {"x": 0, "y": 0, "width": 343, "height": 56}},
+    ])
+    e = _parse_node_layout_payload(payload, "1:23").elements[0]
+    assert e.role == "primary_action"
+
+
+def test_role_strict_btn_prefix_still_works() -> None:
+    """Layers named with the strict `btn_*` convention remain primary_action
+    even on plain FRAMEs (designer convention is sufficient signal when
+    it's a deliberate prefix, not a loose substring).
+    """
+    payload = _figma_nodes_payload("1:23", children=[
+        {"id": "1:24", "name": "btn_continue", "type": "FRAME",
+         "absoluteBoundingBox": {"x": 0, "y": 0, "width": 343, "height": 48}},
+    ])
+    e = _parse_node_layout_payload(payload, "1:23").elements[0]
+    assert e.role == "primary_action"

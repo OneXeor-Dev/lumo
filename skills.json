@@ -1,6 +1,6 @@
 {
   "name": "lumo",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Mobile UI/UX design intelligence grounded in cognitive science (Fitts, Hick, Gestalt) — WCAG validator with OKLCH auto-correct, cross-platform parity diff for Compose vs SwiftUI, theory-of-design layout checks. Specialised for Jetpack Compose, Android XML, SwiftUI, and UIKit.",
   "skills": [
     "./skill"

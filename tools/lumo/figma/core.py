@@ -40,6 +40,7 @@ from __future__ import annotations
 import os
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Literal, Mapping, cast
 from urllib.parse import unquote, urlparse
 
@@ -729,12 +730,42 @@ def _figma_role(node: Mapping[str, Any], name_lower: str) -> str:
     docs/design/figma-render.md §"Role heuristic".
 
     Order matters — first match wins. Users override by renaming layers.
+
+    0.2.1 tightening: the previous heuristic flagged any layer containing
+    "button" in its name as `primary_action`. Dogfood on the MoneyMan
+    calculator (Figma node 232:2264) showed 5 false-positive Fitts
+    findings: `button_3` (16dp decorative icon), `buttons` (32dp group
+    container), `flutterbutton_2` (32dp Flutter wrapper). These are not
+    tap targets — the layer naming is just convention, not semantics.
+
+    New rules for `primary_action`:
+      - Must be an INSTANCE (real component), OR
+      - Name has an exact `btn_*` prefix (not loose substring), AND
+      - Shorter side ≥ 32dp (anything smaller is decorative — even a
+        platform's minimum tap target is 44pt iOS / 48dp Android).
+
+    The 32dp gate is deliberately permissive: it eliminates the obvious
+    false positives (16dp decoration) without silencing the borderline
+    44dp case the dogfood revealed as a real Android-vs-HIG bug.
     """
     ntype = node.get("type", "")
-    if name_lower.startswith("btn_") or "button" in name_lower or (
-        ntype == "INSTANCE" and "btn" in name_lower
-    ):
+    bbox = node.get("absoluteBoundingBox") or {}
+    short_side = min(
+        float(bbox.get("width") or 0.0),
+        float(bbox.get("height") or 0.0),
+    )
+
+    # primary_action — tightened. Must look like a real button by EITHER
+    # being a component instance OR using the strict btn_ prefix.
+    looks_like_button = (
+        ntype == "INSTANCE"
+        or name_lower.startswith("btn_")
+        or name_lower == "button"
+        or name_lower.startswith("button_")
+    )
+    if looks_like_button and short_side >= 32.0:
         return "primary_action"
+
     if name_lower.startswith("nav_") or "tab_bar" in name_lower or "bottom_nav" in name_lower:
         return "nav_item"
     if name_lower.startswith("icon_") or (
@@ -951,3 +982,88 @@ def _parse_node_layout_payload(
         unit="dp",  # Figma units map to dp/pt; we expose as dp for parity downstream
         elements=elements,
     )
+
+
+# ============================================================================
+# Figma PNG export (for annotate)
+# ============================================================================
+#
+# `lumo-figma render --annotate <out.png>` produces a visualisation of
+# the findings over the Figma frame. To do that we need the raster of
+# the frame itself, which we fetch from /v1/images.
+
+def fetch_node_image_url(
+    file_key: str,
+    node_id: str,
+    *,
+    token: str | None = None,
+    scale: float = 2.0,
+    http_client: httpx.Client | None = None,
+) -> str:
+    """Hit `/v1/images/{file_key}?ids={node_id}&scale={scale}&format=png`
+    and return the temporary S3 URL of the rendered PNG.
+
+    The URL is valid for ~30 minutes — callers should download
+    immediately. We never cache or proxy.
+    """
+    resolved_token = _resolve_token(token)
+    endpoint = f"/images/{file_key}"
+    url = f"{FIGMA_API_BASE}{endpoint}"
+    headers = {"X-Figma-Token": resolved_token}
+    params = {"ids": node_id, "scale": str(scale), "format": "png"}
+
+    client = http_client or httpx.Client(timeout=DEFAULT_TIMEOUT_SECONDS)
+    owns_client = http_client is None
+    try:
+        resp = client.get(url, headers=headers, params=params)
+        if resp.status_code != 200:
+            raise FigmaApiError(
+                status=resp.status_code,
+                endpoint=f"{endpoint}?ids={node_id}",
+                body=resp.text,
+            )
+        data = cast(dict[str, Any], resp.json())
+        if data.get("err"):
+            raise FigmaApiError(
+                status=200,
+                endpoint=f"{endpoint}?ids={node_id}",
+                body=str(data["err"]),
+            )
+        images = data.get("images") or {}
+        image_url = images.get(node_id)
+        if not image_url:
+            raise FigmaApiError(
+                status=200,
+                endpoint=f"{endpoint}?ids={node_id}",
+                body=f"no image URL for node {node_id!r} in response",
+            )
+        return cast(str, image_url)
+    finally:
+        if owns_client:
+            client.close()
+
+
+def download_node_image(
+    file_key: str,
+    node_id: str,
+    out_path: str | Path,
+    *,
+    token: str | None = None,
+    scale: float = 2.0,
+    http_client: httpx.Client | None = None,
+) -> Path:
+    """Fetch the PNG for a Figma node and write it to `out_path`.
+
+    Returns the resolved Path. Two HTTP round trips — one to /v1/images
+    for the temporary URL, one to download the bytes from S3.
+    """
+    image_url = fetch_node_image_url(
+        file_key, node_id, token=token, scale=scale, http_client=http_client,
+    )
+    out = Path(out_path)
+    # Different client for the S3 download — no Figma token needed.
+    with httpx.Client(timeout=DEFAULT_TIMEOUT_SECONDS) as dl:
+        resp = dl.get(image_url)
+        resp.raise_for_status()
+    out.write_bytes(resp.content)
+    return out
