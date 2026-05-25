@@ -157,6 +157,26 @@ lumo/
 
 ## Phase 2 — Differentiators (v0.2–0.5)
 
+**Priority shift (2026-05-25):** the original Phase 2 order optimised for
+coverage depth (multi-file resolution first, lumo-spec last). After
+revisiting the success criteria — *"Lumo should tell me in detail why a
+design fails Tier 1, and whether the code matches the design"* — we
+reordered around the two categories Lumo doesn't cover at all yet
+(requirements check, polish scoring, component reinvention) ahead of the
+incremental coverage upgrade (multi-file). The reasoning: opening new
+categories of finding moves Lumo toward the success criteria; pushing
+existing `lumo-render` coverage from 28% to 60% improves what already
+works but doesn't change what Lumo can answer.
+
+### Phase 2 sequence
+
+1. `lumo-spec` — design vs. requirements (Confluence / Jira / Notion / Markdown)
+2. `lumo-tier` — Tier-1 polish composite score
+3. `lumo-component` — reinvented-components detector
+4. Multi-file AST resolution (lumo-render coverage 28% → 60%)
+5. `rules_search` — hybrid BM25 + embeddings
+6. `audit_html` — HTML report renderer (postponed)
+
 ### Tools
 
 4. **`lumo-source` — Compose + SwiftUI AST checks**
@@ -259,88 +279,187 @@ lumo/
    multi-file (0.2.0) we target **≥ 60 %**; the last gap remains the
    runtime values `snapshot_input` covers.
 
-8. **Multi-file AST resolution** ⏳ next (target 0.3.0 — bumped one
-   minor after `lumo-figma render` shipped in 0.2.0).
-   When `lumo-render` hits an unknown composable, walk the project to
-   find its definition, parse that file, and inline the body — the
-   honesty rule still applies (anything we can't resolve still emits
-   `ast-unresolved` with a reason). Full design split across five
-   sub-docs under
-   [docs/design/multi-file-resolution/](./docs/design/multi-file-resolution/):
-   project index → name resolution → inline expansion → modifier
-   forwarding → end-to-end trace. Four-phase rollout, one PR per phase.
-9. **`snapshot_input`** — read **measured** layouts from snapshot-testing
-   frameworks (Roborazzi + swift-snapshot-testing). Moved to Phase 3 as
-   a *precision upgrade* — once `lumo-render` + multi-file land, the
-   capture-library work only earns its keep on the last ~20 % where
-   runtime values matter (token resolution, dynamic type, weight
-   siblings driven by state). Full design still in
-   [docs/design/snapshot-input.md](./docs/design/snapshot-input.md).
-10. **`lumo-spec` — design vs. requirements check.**
-    The third missing piece for a complete design audit: today
-    `lumo-figma render` answers "does this layout obey the
-    cognitive-science rules" and `lumo-figma diff` answers "do tokens
-    match", but neither answers "does the design match the product
-    requirements". This tool pulls the requirements from where they
-    actually live — Confluence, Notion, Jira, Linear, or a local
-    Markdown folder — and runs an LLM-backed semantic check against
-    a Lumo layout JSON (from `lumo-figma render` or `lumo-render`).
+8. **`lumo-spec` — design vs. requirements check.** ⏳ next (target 0.3.0).
+   The first missing piece for a complete design audit: today
+   `lumo-figma render` answers "does this layout obey the
+   cognitive-science rules" and `lumo-figma diff` answers "do tokens
+   match", but neither answers "does the design match the product
+   requirements". This tool pulls the requirements from where they
+   actually live — Confluence, Notion, Jira, Linear, or a local
+   Markdown folder — and runs an LLM-backed semantic check against
+   a Lumo layout JSON (from `lumo-figma render` or `lumo-render`).
 
-    **Sources (pluggable):**
-    - Confluence — page id or URL, REST API (`/wiki/rest/api/content`),
-      auth via `CONFLUENCE_TOKEN` env. Plazo's primary surface
-      (MobileDepartment space).
-    - Notion — page / database id, official API,
-      `NOTION_TOKEN` env.
-    - Jira / Linear — single ticket id, REST API + LLM extracts the
-      "design requirements" section.
-    - Local Markdown — `--spec ./prd.md` for offline / monorepo cases.
+   **Sources (pluggable):**
+   - Confluence — page id or URL, REST API (`/wiki/rest/api/content`),
+     auth via `CONFLUENCE_TOKEN` env. Plazo's primary surface
+     (MobileDepartment space).
+   - Notion — page / database id, official API,
+     `NOTION_TOKEN` env.
+   - Jira / Linear — single ticket id, REST API + LLM extracts the
+     "design requirements" section.
+   - Local Markdown — `--spec ./prd.md` for offline / monorepo cases.
 
-    **What it does:**
-    - Fetches the spec doc, flattens to text (ADF → markdown for
-      Atlassian, blocks → markdown for Notion).
-    - Takes the layout JSON (Lumo schema, any source label) as
-      "what's currently designed".
-    - LLM-backed semantic comparison: emits findings like
-      *"spec requires a back button — not present in layout"*,
-      *"spec calls for 3 input fields, layout has 5"*,
-      *"spec says hide CTA until form valid — layout shows it
-      always"*.
-    - Honesty rule: findings carry `confidence` field (`high`
-      when textual evidence is direct, `medium` for inferred, `low`
-      for soft heuristics). Never fabricate requirements the spec
-      doesn't state.
-    - Output: same Lumo finding shape as `lumo-theory`; severity
-      derived from spec wording (`must` → high, `should` → medium,
-      `may` → low).
+   **What it does:**
+   - Fetches the spec doc, flattens to text (ADF → markdown for
+     Atlassian, blocks → markdown for Notion).
+   - Takes the layout JSON (Lumo schema, any source label) as
+     "what's currently designed".
+   - LLM-backed semantic comparison: emits findings like
+     *"spec requires a back button — not present in layout"*,
+     *"spec calls for 3 input fields, layout has 5"*,
+     *"spec says hide CTA until form valid — layout shows it
+     always"*.
+   - Honesty rule: findings carry `confidence` field (`high`
+     when textual evidence is direct, `medium` for inferred, `low`
+     for soft heuristics). Never fabricate requirements the spec
+     doesn't state.
+   - Output: same Lumo finding shape as `lumo-theory`; severity
+     derived from spec wording (`must` → high, `should` → medium,
+     `may` → low).
 
-    **CLI shape (proposed):**
-    ```bash
-    lumo-spec check --layout screen.json \
-                    --source confluence --page-id 123456
-    lumo-spec check --layout screen.json \
-                    --source notion --page-id <uuid>
-    lumo-spec check --layout screen.json --spec ./prd.md
-    lumo-spec check --layout screen.json --jira CRDES-1234
+   **CLI shape (proposed):**
+   ```bash
+   lumo-spec check --layout screen.json \
+                   --source confluence --page-id 123456
+   lumo-spec check --layout screen.json \
+                   --source notion --page-id <uuid>
+   lumo-spec check --layout screen.json --spec ./prd.md
+   lumo-spec check --layout screen.json --jira CRDES-1234
+   ```
+
+   **Out of scope (v1):**
+   - No write-back to the spec source — read-only.
+   - No spec authoring / templating. The team writes the spec how
+     they want; Lumo reads it.
+   - No multi-page consolidation in v1 — one spec input per check.
+
+   **Honesty risk to call out early:** LLM-backed checks have higher
+   drift than the deterministic Python tools. This tool's findings
+   must carry a clear "LLM-derived" marker and never claim
+   `source: "measured"`. The `confidence` field is non-negotiable.
+   Design doc to be added at `docs/design/spec-check.md` before
+   implementation.
+
+9. **`lumo-tier` — Tier-1 polish composite score.** ⏳ planned (target 0.4.0).
+   Answers the central question of Lumo's success criteria:
+   *"Is this design Tier 1, and if not, exactly why?"* Composes nine
+   deterministic sub-metrics into a weighted score (0–100) and a tier
+   bucket (Tier 1 / Tier 2 / Tier 3). Every sub-metric ships as its
+   own check so findings stay actionable.
+
+   **Metrics (computed from a Lumo layout JSON, no LLM):**
+
+   | Metric | How measured |
+   |---|---|
+   | `typography_discipline` | Count of unique font sizes per screen (target ≤ 3); ratio between adjacent sizes (target 1.25 / 1.333 / 1.5). |
+   | `spacing_rhythm` | All paddings / margins ∈ configured scale (`audit.spacing_scale`); count of orphan values. |
+   | `palette_economy` | Count of unique colours per screen (target ≤ 7); all colours resolve to tokens (no orphan hex). |
+   | `consistency` | Same role → same size + spacing (e.g. all `primary_action` heights match, all `nav_item` paddings match). |
+   | `symmetry` | Left/right margin parity; weight distribution against vertical centre. |
+   | `hierarchy_clarity` | Primary action ≥ 1.5× visual weight vs secondary (extends current Fitts relative check). |
+   | `gestalt_grouping` | Within-group spacing ≤ ½ × between-group spacing (proximity ratio). |
+   | `guideline_conformance` | Compliance with configured platform catalogue (HIG / Material 3); see `platform_guidelines` config below. |
+   | `radius_consistency` | Count of unique radius values per screen (target ≤ 2); all radii ∈ configured `radius_scale`. |
+
+   **Score → Tier:**
+   - Tier 1: ≥ 85, zero `high`-severity sub-metric failures.
+   - Tier 2: 65–84, or any single `high` failure.
+   - Tier 3: < 65, or ≥ 2 `high` failures.
+
+   Weights live in `lumo.config.json` so teams can tune to their
+   priorities (e.g. brand-led teams might weight `palette_economy`
+   higher; accessibility-led teams weight `hierarchy_clarity`).
+
+   **CLI shape (proposed):**
+   ```bash
+   lumo-tier score --layout screen.json
+   lumo-tier score --layout screen.json --config lumo.config.json
+   lumo-tier score --layout screen.json --json
+   ```
+
+   **Output contract:** verdict line (`TIER 1 — score 92`), per-metric
+   table (metric / score / weight / contribution / status), then the
+   normal Lumo findings list for everything that lost points. No
+   reference apps, no LLM scoring — every point lost has a measurable
+   cause.
+
+   **What this is NOT:** subjective polish, brand judgement, copy
+   review, animation quality, or anything that can't be derived from
+   geometry + tokens. Tier-1 here means "passes the measurable polish
+   bar", not "wins design awards".
+
+10. **`lumo-component` — reinvented-components detector.** ⏳ planned
+    (target 0.4.0 — pairs with `lumo-tier`).
+    Catches the pattern: developer rebuilds a platform-provided
+    component from primitives instead of using the off-the-shelf
+    version, dragging in boilerplate + accessibility gaps + drift
+    from platform behaviour.
+
+    **Detection (AST pattern matching on `lumo-source` output):**
+    - Compose: `Surface { Row { Icon; Text; Spacer; Icon } }` with
+      `clickable` → "use `ListItem`". `Box { Text; CircularProgressIndicator }`
+      with explicit padding → "use `Button(content = …)` with loading slot".
+      `Row { Checkbox; Text }` → "use `CheckboxRow` / `LabelledCheckbox`".
+    - SwiftUI: `HStack { Image; Text; Spacer; Image }` with `.onTapGesture`
+      → "use `Label` + `Button`". Custom toggle built from
+      `Rectangle().fill(…)` → "use `Toggle`".
+
+    **Config-driven (mandatory):**
+    ```json
+    {
+      "platform_guidelines": {
+        "android": "material3",
+        "ios":     "hig"
+      },
+      "component_library": {
+        "source": "platform",
+        "allowed_reinvention": [
+          "LimitExceededDialog",
+          "RegistrationStepHeader"
+        ]
+      }
+    }
     ```
+    - `platform_guidelines.android` ∈ `material3 | material2 | custom`.
+    - `platform_guidelines.ios` ∈ `hig | custom`.
+    - `component_library.source` ∈ `platform | custom | mixed`.
+      `platform` means primitives should resolve to first-party
+      components (Material 3 / SwiftUI). `mixed` allows internal
+      design-system components in addition. `custom` disables the
+      check entirely.
+    - `allowed_reinvention` whitelists business-level composites
+      (Plazo's `LimitExceededDialog`, registration screens, etc.) —
+      these are *intended* reinvention and never flagged.
 
-    **Out of scope (v1):**
-    - No write-back to the spec source — read-only.
-    - No spec authoring / templating. The team writes the spec how
-      they want; Lumo reads it.
-    - No multi-page consolidation in v1 — one spec input per check.
+    **Output:** finding shape consistent with `lumo-source`, severity
+    `medium` by default (`high` when the reinvention drops a11y
+    behaviour the platform component provides for free — e.g. custom
+    toggle missing `.accessibilityValue`).
 
-    **Honesty risk to call out early:** LLM-backed checks have higher
-    drift than the deterministic Python tools. This tool's findings
-    must carry a clear "LLM-derived" marker and never claim
-    `source: "measured"`. The `confidence` field is non-negotiable.
+    **What this is NOT:** a code generator (no auto-replace, only
+    suggestion). Does not require a design-system library to exist —
+    works directly against platform components in v1.
 
-    Target: 0.3.0 or 0.4.0 depending on multi-file priority. Design
-    doc to be added at `docs/design/spec-check.md` before
-    implementation.
+11. **Multi-file AST resolution.** ⏳ planned (target 0.5.0,
+    deprioritised from 0.3.0).
+    Incremental coverage upgrade for `lumo-render`: walk the project
+    when an unknown composable is encountered, find its definition,
+    parse that file, and inline the body — the honesty rule still
+    applies (anything we can't resolve still emits `ast-unresolved`
+    with a reason). Lifts `lumo-render` coverage from ~28% to ≥ 60%
+    on typical screens. Full design split across five sub-docs under
+    [docs/design/multi-file-resolution/](./docs/design/multi-file-resolution/):
+    project index → name resolution → inline expansion → modifier
+    forwarding → end-to-end trace. Four-phase rollout, one PR per phase.
 
-11. **`rules_search`** — hybrid BM25 + local embedding search over rules DB.
-12. **`audit_html`** — optional HTML report renderer for `lumo-audit`.
+    **Why deprioritised:** opens no new finding categories; only
+    improves the precision of the AST evaluator that already works.
+    Categories (`lumo-spec`, `lumo-tier`, `lumo-component`) move
+    Lumo toward its success criteria first; multi-file lands once
+    those three are stable and dogfooded.
+
+12. **`rules_search`** — hybrid BM25 + local embedding search over rules DB.
+13. **`audit_html`** — optional HTML report renderer for `lumo-audit`.
     Postponed: would add a templating dep (jinja2 etc.) and Socket will
     flag the new attack surface. The current markdown / JSON output is
     enough for CI consumption; revisit after dogfood.
@@ -363,7 +482,7 @@ lumo/
 
 ### Tools
 
-13. **`snapshot_input` — measured coordinates via capture libraries.**
+14. **`snapshot_input` — measured coordinates via capture libraries.**
     Moved here from Phase 2 once `lumo-render` lands. Ships two thin
     libraries (`lumo-android-capture` for Roborazzi, `lumo-ios-capture`
     for `swift-snapshot-testing`) that emit Lumo-schema JSON next to the
@@ -372,8 +491,8 @@ lumo/
     resolution, dynamic type, weight siblings, lazy lists. Acceptance
     criteria + design in
     [docs/design/snapshot-input.md](./docs/design/snapshot-input.md).
-14. Visual diff: render Compose preview + SwiftUI snapshot → pixel/structural diff.
-15. Per-project memory recall — skill automatically pulls learned patterns into reviews.
+15. Visual diff: render Compose preview + SwiftUI snapshot → pixel/structural diff.
+16. Per-project memory recall — skill automatically pulls learned patterns into reviews.
 
 ### Distribution
 

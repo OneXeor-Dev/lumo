@@ -38,6 +38,14 @@ Each tool returns structured findings (severity, recommendation, metric)
 and propagates an honest confidence label — `measured`, `code-estimated`,
 or `description-estimated` — so the consumer can weigh the result.
 
+## What's next
+
+Phase 2 is sequenced around the question *"why is this design not Tier 1,
+and does the code match it?"*: `lumo-spec` (design vs. requirements,
+0.3.0) → `lumo-tier` (Tier-1 polish composite score, 0.4.0) →
+`lumo-component` (reinvented-components detector, 0.4.0) → multi-file
+AST resolution (0.5.0). Full plan in [ROADMAP.md](./ROADMAP.md).
+
 ## Demo
 
 ![Lumo demo: wcag fix, parity diff, theory check](./assets/demo.gif)

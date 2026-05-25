@@ -5,6 +5,38 @@ All notable changes to Lumo are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and Lumo adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **Phase 2 roadmap restructured (2026-05-25).** Reordered around
+  success criteria *"Lumo should explain in detail why a design fails
+  Tier 1, and whether the code matches the design"*. New sequence:
+  `lumo-spec` (0.3.0) → `lumo-tier` (0.4.0) → `lumo-component` (0.4.0)
+  → multi-file AST resolution (0.5.0, deprioritised) → `rules_search`
+  → `audit_html`. Rationale: opening new finding categories
+  (requirements, polish scoring, component reinvention) moves Lumo
+  toward the success criteria first; multi-file improves precision
+  of an already-working tool and lands after the new categories are
+  stable.
+
+### Added (planned, design pending)
+
+- **`lumo-tier` — Tier-1 polish composite score.** Nine deterministic
+  sub-metrics (typography discipline, spacing rhythm, palette economy,
+  consistency, symmetry, hierarchy clarity, gestalt grouping,
+  guideline conformance, radius consistency) → weighted score 0–100
+  → tier bucket. No reference apps, no LLM — every point lost has a
+  measurable cause.
+- **`lumo-component` — reinvented-components detector.** AST pattern
+  match for primitives that rebuild platform components (Compose
+  `Surface { Row { Icon; Text } }` with `clickable` → "use
+  `ListItem`"; SwiftUI custom `Rectangle().fill(…)` toggle → "use
+  `Toggle`"). Config-driven via `platform_guidelines` (`material3` /
+  `material2` / `hig` / `custom`) and `component_library`
+  (`platform` / `mixed` / `custom`) with `allowed_reinvention`
+  whitelist for intended business composites.
+
 ## [0.2.2] — 2026-05-22
 
 Color contrast is now a first-class lumo-theory finding. Until this
