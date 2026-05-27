@@ -83,17 +83,20 @@ let the LLM invent ids — the structured-output schema enforces the enum.
 
 ## Severity derivation
 
-From spec wording (RFC 2119-style):
+Most product specs do **not** use RFC 2119 wording — they say "нужно",
+"add a", "the screen has", not "must / should / may". So the primary
+path is LLM inference from context, with the recommendation explaining
+why a severity was chosen. Inferred-severity findings always carry
+`confidence: medium` or `low`, never `high`.
+
+When RFC 2119 keywords *are* present, they map directly (a useful
+signal, not the common case):
 
 | Spec keyword | Severity |
 |---|---|
 | `must`, `required`, `shall` | high |
 | `should`, `recommended` | medium |
 | `may`, `optional`, `nice to have` | low |
-
-Ambiguous wording (most product specs): LLM infers from context, and
-the recommendation explains why. Inferred-severity findings always
-carry `confidence: medium` or `low`, never `high`.
 
 ---
 

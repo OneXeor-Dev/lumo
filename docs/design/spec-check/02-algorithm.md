@@ -40,10 +40,11 @@ The pipeline from CLI invocation to emitted findings.
 - **Single message, no conversation.** Spec checks are stateless.
 - **`temperature=0`** for reproducibility. Tests rely on this.
 - **Prompt caching on the system prompt.** The system message
-  (~2-3k tokens of task description + honesty rules + output schema)
-  is fixed across all invocations. Cache hit saves ~80 % on system
-  tokens. Anthropic native cache via `cache_control: ephemeral` on
-  the system block. LiteLLM proxies pass this through.
+  (task description + honesty rules + output schema) is fixed across
+  all invocations, so it's a cache candidate. Anthropic native cache
+  via `cache_control: ephemeral` on the system block; LiteLLM proxies
+  pass this through. Actual saving depends on cache hit rate — measure
+  during dogfood (Phase 5) rather than quoting a number here.
 - **Structured output via tool-use.** Single tool:
   ```python
   tools = [{
@@ -58,20 +59,20 @@ The pipeline from CLI invocation to emitted findings.
 
 ---
 
-## Cost (informational)
+## Model choice — open
 
-Haiku 4.5 pricing: ~$1/MTok input, $5/MTok output. Typical check:
+Default target is Haiku 4.5 for cost. **Not yet verified** that Haiku
+4.5 handles tool-use structured output at this task's complexity
+(multi-finding semantic comparison with strict schema). Sonnet 4.6 is
+the known-good fallback. The Phase 1 PR resolves this empirically
+against the golden cases (see [06-testing.md](./06-testing.md)): if
+Haiku's finding quality is acceptable, ship it as default; otherwise
+default to Sonnet and document Haiku as the cheap opt-in.
 
-| Component | Tokens (approx) |
-|---|---|
-| System prompt (cached after first call) | 2,500 (cached read: $0.10/MTok) |
-| User: spec text | 800 – 4,000 |
-| User: layout JSON | 500 – 1,500 |
-| Output: findings | 200 – 800 |
+## Cost
 
-Per-check cost (warm cache): ≪ $0.01. Heavy users at 100 checks/day:
-< $1. Cold cache (~$0.025 per check) only on the first invocation
-per ~5 minutes.
-
-No cost guard in v1 — users see token counts in the structured output
-and decide for themselves. Document in README.
+Not estimated here — token counts depend on real spec / layout sizes
+we haven't measured. The structured output reports input + output
+token counts per call so users see actual cost. Measure typical and
+worst-case during Phase 5 dogfood, then document ranges in the README
+with real numbers. No cost guard in v1.

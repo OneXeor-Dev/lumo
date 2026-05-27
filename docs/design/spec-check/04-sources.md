@@ -6,6 +6,14 @@ Plugin contract + per-source specifics + ADF flattening.
 
 ---
 
+## HTTP client — open
+
+Confluence + Jira plugins need an HTTP client. Choice between `requests`
+(sync, ubiquitous, mocked via `responses`) and `httpx` (mocked via
+`respx`) is deferred to Phase 2 — pick whichever the rest of Lumo's
+tooling already pulls in to avoid a new dependency. The plugin contract
+below is client-agnostic.
+
 ## Plugin contract
 
 ```python
@@ -142,10 +150,18 @@ Confluence v2 returns ADF. Jira v3 returns ADF for `description` and
 
 This is **deliberately a port, not a dependency**, of the logic in
 `~/development/mobile-team-ai-helpers/tools/jira/adf.py`. Lumo OSS
-cannot depend on a Plazo-internal helper, but the algorithm is
-well-tested and worth keeping consistent.
+cannot depend on a Plazo-internal helper. The port should be
+re-tested independently (Lumo's own fixtures) rather than assuming
+the source is well-covered — verify the source's test state before
+relying on it.
 
-### Coverage
+### Node types to handle
+
+The table below lists the node types worth handling. The actual set
+Plazo specs use should be confirmed by sampling real Confluence / Jira
+content during Phase 2 — the fixture count follows from that, not from
+a guess. Unknown nodes emit a visible comment rather than dropping
+silently, so gaps surface in output.
 
 | ADF node type | Markdown output |
 |---|---|

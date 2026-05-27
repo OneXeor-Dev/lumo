@@ -22,7 +22,9 @@ evidence validator, with the simplest possible source.
 - `tools/lumo/spec/validators.py` — evidence-substring validator,
   schema validator.
 - `tools/lumo/spec/output.py` — text + JSON emitters.
-- Fixtures: 3 markdown specs + 3 layouts + 3 expected findings.
+- Fixtures: enough markdown spec / layout / expected-findings triples
+  to cover at least one finding case and one spec-satisfied (zero
+  findings) case end-to-end.
 
 **Doesn't ship:** Confluence, Jira, MCP wrapper.
 
@@ -34,7 +36,8 @@ evidence validator, with the simplest possible source.
 
 **Scope:**
 - `tools/lumo/spec/adf.py` — shared ADF → markdown flattener with
-  ~30 fixtures.
+  one fixture per handled node type (count follows from the confirmed
+  node-type set, see [04-sources.md](./04-sources.md)).
 - `tools/lumo/spec/sources/confluence.py` — v2 fetch, v1 fallback.
 - `tools/lumo/spec/storage_format.py` — only if Plazo dogfood needs
   v1 fallback.

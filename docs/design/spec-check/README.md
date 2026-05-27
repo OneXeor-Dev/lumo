@@ -156,6 +156,24 @@ Resolved in the sub-docs as referenced.
 
 ---
 
+## What this doc does NOT claim
+
+This is a design doc written before any code. It deliberately does
+**not** quote numbers we haven't measured:
+
+- **Default model** (Haiku 4.5 vs Sonnet 4.6) — resolved empirically
+  in Phase 1 against golden cases, not assumed.
+- **Per-call cost / token counts** — measured during Phase 5 dogfood.
+- **Spec length cap** — derived from model context + real Plazo spec
+  sizes, not a round number.
+- **Fixture / golden-case counts** — fall out of the node-type set and
+  the finding-id enum, confirmed during implementation.
+- **HTTP client + LLM replay shim** — picked in their phases.
+
+Where a value is TBD, the sub-doc says so explicitly. Decisions
+(auth model, honesty contract, source-plugin shape, phasing) are
+firm; quantities are not.
+
 ## Status / rollout
 
 1. Get the design approved (Viktor reviews this README + sub-docs).

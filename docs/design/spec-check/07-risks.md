@@ -50,17 +50,19 @@ teams filter aggressively.
 
 ### Cost
 
-Haiku 4.5: ~$1/MTok input, $5/MTok output. With prompt caching on
-the system message, a typical check (~3k input, ~500 output) lands
-at ≪ $0.01. Heavy users at 100 checks/day: < $1.
-
-No cost guard in v1. Token counts surface in the structured output;
-users decide. Document in README.
+Per-call cost depends on real spec / layout sizes we haven't measured
+and on whether the default model ends up Haiku or Sonnet (see
+[02-algorithm.md](./02-algorithm.md)). No estimate quoted here. Token
+counts surface in the structured output; users decide. Measure
+typical and worst-case during Phase 5 dogfood, document real ranges
+in the README. No cost guard in v1.
 
 ### Spec length cap
 
-32k chars is a v1 cap. Some Confluence specs exceed it. Failure mode
-is fail-fast with a clear error + workarounds. Revisit cap based on
+The cap value is not yet fixed — derived from model context window
+minus output buffer and the real length distribution of Plazo specs
+(see [01-inputs.md](./01-inputs.md)). Whatever the value, the failure
+mode is fail-fast with a clear error + workarounds. Revisit based on
 usage data.
 
 ### LLM honesty enforcement is best-effort

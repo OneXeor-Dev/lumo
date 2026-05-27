@@ -8,12 +8,15 @@ How we validate that the tool works and stays working.
 
 ## Unit tests
 
-- **ADF flattener** (`tools/lumo/spec/adf.py`): ~30 fixtures covering
-  paragraphs, headings, lists (bullet + numbered + nested), tables,
-  code blocks, panels, status macros, links, mentions, emoji, layout
-  sections, images. Each fixture: `input.adf.json` + `expected.md`.
-- **Source plugins** (`sources/*.py`): HTTP layer mocked with
-  `responses` library. Round-trip fixture ADF → flattened markdown.
+- **ADF flattener** (`tools/lumo/spec/adf.py`): one fixture per node
+  type the flattener handles (paragraphs, headings, nested lists,
+  tables, code blocks, panels, status macros, links, mentions, emoji,
+  layout sections, images), plus a few composite-document fixtures.
+  Each fixture: `input.adf.json` + `expected.md`. Final count follows
+  from the node-type set confirmed in Phase 2, not a guess.
+- **Source plugins** (`sources/*.py`): HTTP layer mocked (library
+  choice deferred with the HTTP client — see [04-sources.md](./04-sources.md)).
+  Round-trip fixture ADF → flattened markdown.
 - **Markdown plugin**: passthrough + length-cap edge cases.
 - **Severity-keyword detector**: table-driven over RFC 2119 wording.
 - **Evidence-substring validator**: must reject any finding whose
@@ -26,8 +29,10 @@ How we validate that the tool works and stays working.
 
 Every LLM-touching test records the request + response to
 `tests/fixtures/llm/*.jsonl` once, then replays on CI. Live LLM
-calls run only with `LUMO_TEST_LIVE=1`. Pattern borrowed from
-`vcr.py` (HTTP cassette idea, applied to LLM API).
+calls run only with `LUMO_TEST_LIVE=1`. This is the HTTP-cassette
+idea (à la `vcrpy`) applied to the LLM call — needs a small custom
+record/replay shim or an existing adapter; pick during Phase 1, this
+is a design decision, not an off-the-shelf pattern.
 
 This means:
 - CI runs are deterministic, fast, no network, no API key needed.
@@ -39,27 +44,22 @@ This means:
 
 ## Golden cases
 
-12 hand-built (spec, layout, expected findings) tuples covering:
+Hand-built (spec, layout, expected findings) tuples. The set must
+cover, at minimum, every `id` in the finding enum
+([03-outputs.md](./03-outputs.md)) crossed with the confidence
+levels that matter — plus the must-have negative cases:
 
-| # | Scenario |
-|---|---|
-| 1 | Missing required element (back button) |
-| 2 | Missing required element (CTA) |
-| 3 | Missing required state (error state) |
-| 4 | Element count mismatch (over) |
-| 5 | Element count mismatch (under) |
-| 6 | Behavioural constraint — visibility (hide CTA until valid) |
-| 7 | Behavioural constraint — ordering (steps in wrong order) |
-| 8 | Behavioural constraint — state (loading / disabled) |
-| 9 | Copy mismatch (button label) |
-| 10 | Spec satisfied — no findings expected |
-| 11 | Spec ambiguous — low-confidence finding expected |
-| 12 | Spec mentions image-only requirement — `[VISUAL]` placeholder finding |
+- One per finding `id` (missing element, count mismatch, behavioural
+  constraint, copy mismatch, extraneous element, ambiguous).
+- **Spec satisfied → zero findings** (guards against false positives).
+- **Spec ambiguous → low-confidence finding** (not a hard defect).
+- **Image-only requirement → `[VISUAL]` placeholder behaviour.**
 
-Each lives under `tests/golden/<n>-<slug>/` with `spec.md`,
-`layout.json`, `expected.json`. Reviewing the diff of `expected.json`
-across PRs is the primary signal that prompt or model changes affected
-behaviour.
+Exact count falls out of that matrix once the enum is final, not from
+a number picked up front. Each lives under `tests/golden/<n>-<slug>/`
+with `spec.md`, `layout.json`, `expected.json`. The diff of
+`expected.json` across PRs is the primary signal that a prompt or
+model change shifted behaviour.
 
 ---
 

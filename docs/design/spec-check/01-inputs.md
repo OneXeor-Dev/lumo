@@ -105,9 +105,12 @@ guarantees, regardless of source:
 
 ### Length cap
 
-Hard-capped at **32k characters** in v1. Haiku 4.5 supports more, but
-the cap keeps cost predictable and matches what fits comfortably in a
-single prompt-cached system message.
+There is a hard cap on flattened spec length. The exact value is
+**not yet fixed** — it should be derived from (a) the chosen model's
+context window minus an output buffer, and (b) the real length
+distribution of Plazo Confluence / Jira specs, measured during
+Phase 5 dogfood. Phase 1 ships a conservative placeholder; the final
+cap lands with real data.
 
 If exceeded → fail fast with the actual count and the cap (exit 2).
 **Never silent-truncate.** Silent truncation is the worst possible
@@ -115,4 +118,4 @@ failure mode for a spec-vs-design check — the user thinks the whole
 spec was read.
 
 Workarounds for over-cap specs documented in the error message: split
-the page, pass parent only, increase cap via env (Phase 3 if asked).
+the page, pass parent only, raise the cap via env (Phase 3 if asked).
