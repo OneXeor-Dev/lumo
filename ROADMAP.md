@@ -337,8 +337,9 @@ works but doesn't change what Lumo can answer.
    drift than the deterministic Python tools. This tool's findings
    must carry a clear "LLM-derived" marker and never claim
    `source: "measured"`. The `confidence` field is non-negotiable.
-   Design doc to be added at `docs/design/spec-check.md` before
-   implementation.
+   Design doc: [docs/design/spec-check/](./docs/design/spec-check/) —
+   split into README + 8 sub-docs (inputs, algorithm, outputs,
+   sources, honesty, testing, risks, phasing).
 
 9. **`lumo-tier` — Tier-1 polish composite score.** ⏳ planned (target 0.4.0).
    Answers the central question of Lumo's success criteria:
