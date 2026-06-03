@@ -7,8 +7,38 @@ and Lumo adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **`fitts_undersized_target` now distinguishes touch container from visible glyph.**
+  Element schema gains optional `hit_w` / `hit_h` fields. When declared,
+  the tap-target check uses the hit area instead of `w` / `h`. When the
+  hit area is unknown (e.g. auditing a Figma frame), the check still fires
+  but at MEDIUM severity worded as "verify the touch container in code" —
+  Compose `IconButton` and SwiftUI `Button` already wrap their content in
+  a compliant hit area by default, so a small visible glyph is not
+  automatically a defect. Eliminates a class of false positives that
+  triggered on every Material `IconButton` with a 24dp glyph.
+- **SKILL.md → Optical Alignment section.** Documents the theory behind
+  why asymmetric icons (pencil, arrow, play, magnifier) have visual
+  centres offset from their geometric centres, with references to
+  Apple HIG SF Symbols, Material Iconography, and Müller-Brockmann.
+  Explains why Lumo intentionally does not ship an automated
+  optical-centre check (high false-positive rate without per-icon
+  optical-grid metadata).
+- **SKILL.md → Icon + label tautology** as an inline rule the model
+  applies during reviews. An icon paired with the bare action verb it
+  already encodes is a polish failure; the rule recommends icon-only,
+  label-only, or both-with-optical-correction. Deliberately a model-
+  applied rule rather than a code check — automated tautology detection
+  needs a per-locale vocabulary that is expensive to maintain and
+  produces low-severity findings.
+
 ### Changed
 
+- **SKILL.md → Touch targets section** clarified: the 48dp / 44pt
+  minimum is for the *touch container*, not the visible glyph.
+  Previous wording conflated the two and could be read as flagging
+  every Material `IconButton` whose visible icon is 24dp.
 - **Phase 2 roadmap restructured (2026-05-25).** Reordered around
   success criteria *"Lumo should explain in detail why a design fails
   Tier 1, and whether the code matches the design"*. New sequence:

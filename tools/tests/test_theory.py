@@ -43,8 +43,24 @@ def test_single_button_yields_no_fitts_or_hick() -> None:
 # ============================================================================
 
 
-def test_undersized_target_is_flagged() -> None:
-    # 32dp icon button is under Material's 48dp minimum.
+def test_tap_target_check_fires_for_single_interactive_element() -> None:
+    """Tap-target is independent of Fitts relative difficulty. A single
+    24dp icon button is still undersized even though Fitts (which needs
+    ≥2 targets for a median) does not fire."""
+    layout = _layout([
+        Element(id="lone_icon", role="icon_button", x=24, y=24, w=24, h=24),
+    ])
+    report = check_layout(layout)
+    undersized = [f for f in report.findings if f.check == "fitts_undersized_target"]
+    assert len(undersized) == 1
+    assert undersized[0].elements == ("lone_icon",)
+
+
+def test_undersized_visible_target_without_hit_area_is_medium() -> None:
+    # 32dp icon button, no hit_w/hit_h declared. We can't prove a defect
+    # from geometry alone (Compose IconButton wraps content in 48dp by
+    # default), so the finding fires at MEDIUM with "verify in code"
+    # wording.
     layout = _layout([
         Element(id="close", role="icon_button", x=370, y=20, w=32, h=32),
         Element(id="cta", role="primary_action", x=24, y=800, w=363, h=56, weight="primary"),
@@ -53,8 +69,44 @@ def test_undersized_target_is_flagged() -> None:
     undersized = [f for f in report.findings if f.check == "fitts_undersized_target"]
     assert len(undersized) == 1
     assert undersized[0].elements == ("close",)
+    assert undersized[0].severity == "medium"
+    assert "verify the touch container" in undersized[0].message.lower()
     assert undersized[0].metric["smaller_side"] == 32
     assert undersized[0].metric["minimum"] == 48
+
+
+def test_undersized_declared_hit_area_is_high() -> None:
+    # hit_w/hit_h explicitly declared under 48dp — definite fail, HIGH.
+    layout = _layout([
+        Element(
+            id="bare_icon", role="icon_button",
+            x=370, y=20, w=24, h=24,
+            hit_w=32, hit_h=32,
+        ),
+        Element(id="cta", role="primary_action", x=24, y=800, w=363, h=56, weight="primary"),
+    ])
+    report = check_layout(layout)
+    undersized = [f for f in report.findings if f.check == "fitts_undersized_target"]
+    assert len(undersized) == 1
+    assert undersized[0].severity == "high"
+    assert undersized[0].metric["smaller_side"] == 32
+
+
+def test_declared_hit_area_above_minimum_clears_small_visible_glyph() -> None:
+    # The Material IconButton pattern: 24dp visible glyph inside a 48dp
+    # invisible hit area. This is CORRECT and must not be flagged.
+    layout = _layout([
+        Element(
+            id="back_arrow", role="icon_button",
+            x=12, y=64, w=24, h=24,
+            hit_w=48, hit_h=48,
+        ),
+        Element(id="cta", role="primary_action", x=24, y=800, w=363, h=56, weight="primary"),
+    ])
+    report = check_layout(layout)
+    assert not any(f.check == "fitts_undersized_target" for f in report.findings), (
+        "24dp glyph inside 48dp hit area must not trigger fitts_undersized_target"
+    )
 
 
 def test_at_minimum_target_is_not_flagged() -> None:
@@ -64,6 +116,25 @@ def test_at_minimum_target_is_not_flagged() -> None:
     ])
     report = check_layout(layout)
     assert not any(f.check == "fitts_undersized_target" for f in report.findings)
+
+
+def test_hit_area_partially_declared_uses_visible_dim_for_missing_axis() -> None:
+    # hit_w declared (48), hit_h not (falls back to h=24). Smaller side is
+    # 24, still under minimum — should fire HIGH because the author DID
+    # declare intent for one axis.
+    layout = _layout([
+        Element(
+            id="thin_strip", role="icon_button",
+            x=12, y=64, w=24, h=24,
+            hit_w=48,  # hit_h omitted → falls back to h=24
+        ),
+        Element(id="cta", role="primary_action", x=24, y=800, w=363, h=56, weight="primary"),
+    ])
+    report = check_layout(layout)
+    undersized = [f for f in report.findings if f.check == "fitts_undersized_target"]
+    assert len(undersized) == 1
+    assert undersized[0].severity == "high"
+    assert undersized[0].metric["smaller_side"] == 24
 
 
 # ============================================================================
