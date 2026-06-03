@@ -6,9 +6,15 @@ Each test creates the minimum geometry to trigger or NOT trigger a check.
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import pytest
 
+from lumo.theory.cli import _layout_from_dict
 from lumo.theory.core import Element, Layout, Screen, check_layout
+
+FIXTURES = Path(__file__).parent / "fixtures"
 
 
 # A Pixel 7-class viewport, dp.
@@ -450,3 +456,30 @@ def test_contrast_finding_recommendation_mentions_lumo_wcag_fix() -> None:
     assert "lumo-wcag fix" in rec
     assert "#888888" in rec
     assert "#FFFFFF" in rec
+
+
+# ============================================================================
+# Fixture-driven smoke — confirmation screen with IconButton hit-area patterns
+# ============================================================================
+
+
+def test_fixture_confirm_screen_with_iconbutton_produces_expected_findings() -> None:
+    """End-to-end against the confirmation-screen fixture. Locks in:
+      - Material IconButton pattern (24dp glyph + 48dp hit area) is silent.
+      - Bare undersized icon without hit_w/hit_h fires MEDIUM "verify in code".
+      - Full-width primary CTA at the bottom is silent.
+    """
+    payload = json.loads((FIXTURES / "confirm_screen_with_iconbutton.json").read_text())
+    layout = _layout_from_dict(payload)
+    report = check_layout(layout)
+
+    findings_by_check = {(f.check, f.elements[0]): f for f in report.findings}
+
+    assert ("fitts_undersized_target", "info_icon_bare_no_hit_area") in findings_by_check
+    info_finding = findings_by_check[("fitts_undersized_target", "info_icon_bare_no_hit_area")]
+    assert info_finding.severity == "medium"
+
+    # Material IconButton + primary CTA must not trigger anything.
+    silent_ids = {"back_arrow_material_iconbutton", "confirm_button"}
+    triggered = {f.elements[0] for f in report.findings} & silent_ids
+    assert not triggered, f"Expected silence on {silent_ids}, got findings for {triggered}"
