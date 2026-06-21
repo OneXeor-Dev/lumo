@@ -1,0 +1,24 @@
+{
+  "_comment": "Generic confirmation screen exercising the three tap-target patterns this fixture covers: (1) correct Material IconButton (24dp glyph + 48dp hit area declared) must be silent; (2) bare undersized icon without hit_w/hit_h must fire MEDIUM 'verify in code'; (3) full-width primary CTA at the bottom must be silent.",
+  "screen": { "width": 412, "height": 1200, "unit": "dp" },
+  "source": "description-estimated",
+  "elements": [
+    {
+      "id": "back_arrow_material_iconbutton",
+      "role": "icon_button",
+      "x": 12, "y": 64, "w": 24, "h": 24,
+      "hit_w": 48, "hit_h": 48
+    },
+    {
+      "id": "info_icon_bare_no_hit_area",
+      "role": "icon_button",
+      "x": 188, "y": 776, "w": 16, "h": 16
+    },
+    {
+      "id": "confirm_button",
+      "role": "primary_action",
+      "x": 24, "y": 1092, "w": 364, "h": 56,
+      "weight": "primary"
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "screen": { "width": 411, "height": 891, "unit": "dp" },
+  "source": "measured",
+  "elements": [
+    { "id": "field_name",    "role": "input",          "x": 24, "y": 100, "w": 363, "h": 56, "label": "Full name" },
+    { "id": "field_email",   "role": "input",          "x": 24, "y": 170, "w": 363, "h": 56, "label": "Email" },
+    { "id": "field_phone",   "role": "input",          "x": 24, "y": 240, "w": 363, "h": 56, "label": "Phone number" },
+    { "id": "field_address", "role": "input",          "x": 24, "y": 310, "w": 363, "h": 56, "label": "Address" },
+    { "id": "field_dob",     "role": "input",          "x": 24, "y": 380, "w": 363, "h": 56, "label": "Date of birth" },
+    { "id": "btn_continue",  "role": "primary_action", "x": 24, "y": 800, "w": 363, "h": 56, "label": "Continue", "visible": true }
+  ]
+}

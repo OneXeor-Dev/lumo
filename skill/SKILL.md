@@ -150,6 +150,13 @@ Layout JSON schema:
   (`fitts_color_contrast`): high severity on AA fail (<4.5:1), medium
   on AAA fail (<7.0:1). `lumo-figma render` populates these from solid
   fills; gradients and image fills resolve to `None` (honesty rule).
+- `hit_w` / `hit_h` (optional) — touch container size when it is larger
+  than the visible bounds (e.g. a 24dp icon inside a Material 48dp
+  `IconButton`). Used by the tap-target check instead of `w` / `h`.
+  Without these, the check still runs against `w` / `h` but downgrades
+  the finding to medium severity worded as "verify the touch container
+  in code" — because from a Figma frame alone we cannot tell whether
+  the IconButton / Button wrapping is in place.
 - `source` reports honesty, ordered from most to least trustworthy:
     - `measured` — coordinates came from a real device or a
       snapshot-testing framework (Espresso, XCUITest, Compose
@@ -176,7 +183,7 @@ confidence. **Prefer `lumo-render` over hand-translation**: it produces
 `ast-resolved` output deterministically, so your follow-up
 `lumo-theory` / `lumo-parity` runs are stronger.
 
-Worked example — a deliberately bad screen:
+Worked example — a deliberately bad screen with an explicit hit area:
 
 ```bash
 $ lumo-theory check --layout examples/bad.json
@@ -185,15 +192,20 @@ FOUND  3 findings (2 high, 1 medium)
 
   1. [HIGH    ] fitts_undersized_target
      elements: close
-     Element 'close' is 32dp on its shorter side, below the minimum tap
-     target (48dp).
-     → Increase the touchable area to at least 48dp, either by growing
-     the element or by extending the hit area (Compose:
-     Modifier.minimumInteractiveComponentSize; SwiftUI: .contentShape;
-     UIKit: hitTest override).
+     Element 'close' has a touch container of 32dp on its shorter side,
+     below the minimum tap target (48dp).
+     → Increase the hit area to at least 48dp (Compose:
+     Modifier.minimumInteractiveComponentSize; SwiftUI: .contentShape
+     with padding; UIKit: hitTest override).
      metric: smaller_side=32.00, minimum=48.00
   ...
 ```
+
+If the layout JSON does NOT declare `hit_w`/`hit_h`, the same check
+runs at medium severity worded as "verify the touch container is ≥48dp"
+— Compose `IconButton` and SwiftUI `Button` already wrap their content
+in a compliant hit area by default, so a small visible glyph is not
+automatically a defect.
 
 Exit codes: `0` no findings, `1` findings reported.
 
@@ -948,7 +960,35 @@ keep them here until the tool exists.
 - iOS minimum tap target: **44 × 44 pt**. (Apple HIG, *Designing for iOS*.)
 - Android minimum tap target: **48 × 48 dp**. (Material Design *Accessibility*.)
 - Minimum gap between adjacent tap targets: **8 dp / 8 pt**.
-- Below-minimum icons must extend their hit area (Compose `Modifier.minimumInteractiveComponentSize()`, SwiftUI `.contentShape(Rectangle())` with padding, UIKit `hitTest` override).
+- **The 48dp / 44pt minimum applies to the *touch container*, not the visible glyph.** A 24dp pencil icon inside a 48dp `IconButton` is correct — the IconButton wraps its content in a 48dp invisible hit area by default. Same for SwiftUI `Button` (44pt) and UIKit `UIButton`. Only bare `Icon` / `Image` / `Text` used directly as tap targets need an explicit hit-area extension.
+- If the visible glyph is below the minimum and the touch container is unknown (e.g. you're auditing a Figma frame, not source code), **verify the wrapping in code** before reporting a fail. The `lumo-theory` check downgrades severity in this case and tells you it can't prove a defect from geometry alone.
+- To extend the hit area on bare elements: Compose `Modifier.minimumInteractiveComponentSize()`, SwiftUI `.contentShape(Rectangle())` with padding, UIKit `hitTest` override.
+- In the layout JSON: declare `hit_w` / `hit_h` on an element when the touch container is larger than the visible bounds. `lumo-theory` will use those for the tap-target check instead of `w` / `h`. Without `hit_w`/`hit_h`, the check still runs but issues a "verify in code" finding rather than a definite fail.
+
+### Optical alignment
+
+When pairing an icon with a label or another aligned element, geometric centring ≠ optical centring.
+
+- **Asymmetric, directional, or tilted icons** (pencil/edit, arrow, play, magnifier, send) have their visual centre offset from their bounding-box centre because the visual mass is not symmetric. Centring the glyph's bbox makes the *image* look offset.
+- **Rounded vs flat-edged shapes** require overshoot to look the same size — a circle of identical bbox height looks smaller than a square because it has less area near the edges.
+- **Cap-height vs bbox-height**: icons paired with text should align to the text's cap-height or x-height, not the bbox edges. SF Symbols and Material Symbols are pre-designed against typographic baselines for exactly this reason.
+
+References:
+- Apple HIG → *SF Symbols → Aligning symbols and text* — documents the optical-alignment grids.
+- Material Design → *Iconography → Optical adjustment* — publishes per-shape optical correction rules (square / circle / vertical-rect / horizontal-rect / complex).
+- Müller-Brockmann, *Grid Systems in Graphic Design* — the canonical text on optical vs geometric alignment.
+
+Why Lumo does not auto-check optical centring: it requires rasterising the icon and computing centre-of-mass on the alpha channel against the bbox, then comparing to the paired element's axis. The math is well-defined but the false-positive rate on a real codebase is high — every legitimately asymmetric icon (which is most of them) would trip the check without per-icon optical-grid metadata.
+
+### Icon + label tautology (inline rule)
+
+Two signals carrying one meaning is a polish failure. An `edit` icon paired with the label "Edit" is redundant: the icon already encodes the verb. When reviewing a screen, flag pairs where the label is the bare action verb the icon already says — in any locale — and recommend one of:
+
+1. **Icon only** — preferred when the icon is a well-known verb pictogram (edit, delete, share, search, back, close, add, settings). Plays well with optical alignment because there's nothing to align *to*.
+2. **Label only** — preferred when usage data shows the icon alone has low tap-through, or the verb is ambiguous in the target locale.
+3. **Both, with optical correction** — only when affordance reinforcement is genuinely needed (onboarding, low-frequency destructive actions). Be aware of the optical-alignment caveat above.
+
+This is a model-applied rule, not a `lumo-theory` check. Automated tautology detection would need a per-locale icon-label vocabulary that is expensive to maintain and produces low-severity findings; the model can apply this rule case-by-case from the SKILL.md guidance with better judgement than a substring match would give.
 
 ### Typography baseline
 

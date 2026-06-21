@@ -7,8 +7,71 @@ and Lumo adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **`lumo-spec` — Phase 1 (Markdown source + LLM round-trip).** First
+  step toward the 0.3.0 spec-vs-design check (design:
+  `docs/design/spec-check/`). Answers *"does the layout satisfy the
+  product spec?"* — the gap between `lumo-theory` ("is it well-built?")
+  and `lumo-source` ("does code match the design tokens?"). This phase
+  ships the end-to-end pipeline against a local Markdown spec:
+
+  ```bash
+  lumo-spec check --layout screen.json --spec ./prd.md
+  lumo-spec check --layout screen.json --spec ./prd.md --json
+  ```
+
+  Honesty contract enforced in code, not just prompt:
+  - `source` is always `"llm-derived"` — never `measured`/`ast-resolved`.
+  - Every finding carries `confidence ∈ {high, medium, low}` and a
+    verbatim `evidence` quote. A post-LLM validator drops any finding
+    whose evidence is not a substring of the fetched spec (fabricated-
+    quote guard), with a stderr warning when it fires.
+  - Hard 32k-char spec cap (placeholder pending dogfood) — fails fast,
+    **never silent-truncates**.
+  - Structured output via a single forced `emit_findings` tool — locked
+    finding-id / severity / confidence enums, no free-form JSON parsing.
+  - `temperature=0`; system prompt marked `cache_control: ephemeral`.
+  - Exact model id recorded in every report.
+  - Record/replay shim (`lumo.spec.replay`) so the test suite runs with
+    no network and no API key; cassettes are version-controlled so model
+    drift shows as a visible diff.
+
+  Confluence (`--source confluence`), Jira (`--source jira`), URL
+  inference, and the MCP wrapper are parsed/stubbed but ship in Phases
+  2–5. `anthropic` is an optional extra (`pip install lumo-mobile[spec]`),
+  imported lazily — the core install stays lean and CI never needs it.
+
+- **`fitts_undersized_target` now distinguishes touch container from visible glyph.**
+  Element schema gains optional `hit_w` / `hit_h` fields. When declared,
+  the tap-target check uses the hit area instead of `w` / `h`. When the
+  hit area is unknown (e.g. auditing a Figma frame), the check still fires
+  but at MEDIUM severity worded as "verify the touch container in code" —
+  Compose `IconButton` and SwiftUI `Button` already wrap their content in
+  a compliant hit area by default, so a small visible glyph is not
+  automatically a defect. Eliminates a class of false positives that
+  triggered on every Material `IconButton` with a 24dp glyph.
+- **SKILL.md → Optical Alignment section.** Documents the theory behind
+  why asymmetric icons (pencil, arrow, play, magnifier) have visual
+  centres offset from their geometric centres, with references to
+  Apple HIG SF Symbols, Material Iconography, and Müller-Brockmann.
+  Explains why Lumo intentionally does not ship an automated
+  optical-centre check (high false-positive rate without per-icon
+  optical-grid metadata).
+- **SKILL.md → Icon + label tautology** as an inline rule the model
+  applies during reviews. An icon paired with the bare action verb it
+  already encodes is a polish failure; the rule recommends icon-only,
+  label-only, or both-with-optical-correction. Deliberately a model-
+  applied rule rather than a code check — automated tautology detection
+  needs a per-locale vocabulary that is expensive to maintain and
+  produces low-severity findings.
+
 ### Changed
 
+- **SKILL.md → Touch targets section** clarified: the 48dp / 44pt
+  minimum is for the *touch container*, not the visible glyph.
+  Previous wording conflated the two and could be read as flagging
+  every Material `IconButton` whose visible icon is 24dp.
 - **Phase 2 roadmap restructured (2026-05-25).** Reordered around
   success criteria *"Lumo should explain in detail why a design fails
   Tier 1, and whether the code matches the design"*. New sequence:
