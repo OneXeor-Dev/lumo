@@ -1,5 +1,5 @@
 name: Suggest a check
-description: Propose a new rule for lumo-theory, lumo-parity, or lumo-wcag.
+description: Propose a new deterministic rule for a Lumo tool.
 title: "[check] "
 labels: ["check-proposal"]
 body:
@@ -33,6 +33,9 @@ body:
       options:
         - Layout JSON (theory_check / parity_diff schema)
         - Colour pair (wcag_validator)
+        - Source file (Compose / SwiftUI AST)
+        - Repository audit
+        - Figma variables or frame JSON
         - Something new (describe below)
     validations:
       required: true

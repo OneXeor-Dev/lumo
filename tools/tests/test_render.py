@@ -8,15 +8,8 @@ explicitly: token references and unknown composables MUST emit
 
 from __future__ import annotations
 
-from pathlib import Path
-
-import pytest
-
 from lumo.render.core import (
-    DEFAULT_BUTTON_HEIGHT_DP,
-    DEFAULT_ICON_BUTTON_SIZE_DP,
     DEFAULT_ICON_SIZE_DP,
-    DEFAULT_SCREEN_WIDTH_DP,
     Element,
     render_compose,
 )
@@ -202,14 +195,16 @@ def test_weight_in_column_splits_height() -> None:
     @Composable
     fun X() {
         Column(modifier = Modifier.fillMaxSize()) {
-            Box(modifier = Modifier.weight(1f).testTag("top")) {}
-            Box(modifier = Modifier.weight(1f).testTag("bot")) {}
+            Button(onClick = {}, modifier = Modifier.weight(1f).testTag("top")) { Text("A") }
+            Button(onClick = {}, modifier = Modifier.weight(1f).testTag("bot")) { Text("B") }
         }
     }
     """
     r = render_compose(src, screen_width=360, screen_height=800)
-    # Box w/h are container-level; we don't emit Box as an Element, so
-    # this test checks via children. Add a tagged child.
+    top = _by_id(r.elements, "top")
+    bot = _by_id(r.elements, "bot")
+    assert top.y == 0.0 and top.h == 400.0
+    assert bot.y == 400.0 and bot.h == 400.0
 
 
 # ============================================================================

@@ -14,7 +14,7 @@ body:
     attributes:
       label: Versions
       description: Output of `lumo --version` and `pip show lumo-mobile | head -2`.
-      placeholder: "lumo 0.0.2 / lumo-mobile 0.0.1"
+      placeholder: "@onexeor/lumo 0.2.2 / lumo-mobile 0.2.2"
     validations:
       required: true
 
@@ -27,6 +27,10 @@ body:
         - lumo-wcag
         - lumo-theory
         - lumo-parity
+        - lumo-source
+        - lumo-audit
+        - lumo-figma
+        - lumo-render
         - lumo-mcp
         - lumo (installer)
         - other / unsure

@@ -75,7 +75,7 @@ def annotate_png(
                      hint rather than a cryptic ModuleNotFoundError.
     """
     try:
-        from PIL import Image, ImageDraw, ImageFont
+        from PIL import Image, ImageDraw
     except ImportError as exc:  # pragma: no cover — env-dependent
         raise ImportError(
             "lumo-figma annotate requires Pillow. Install with:\n"

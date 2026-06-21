@@ -3,12 +3,12 @@
 ## Supported Versions
 
 Only the latest minor release of Lumo receives security fixes. We don't
-backport to older `0.0.x` versions while the project is pre-1.0.
+backport to older `0.x` versions while the project is pre-1.0.
 
 | Version | Supported |
 |---------|-----------|
-| 0.0.x   | ✅ Latest only |
-| < 0.0.1 | ❌ Not supported |
+| 0.2.x   | ✅ Latest only |
+| < 0.2   | ❌ Not supported |
 
 ## What counts as a security issue
 

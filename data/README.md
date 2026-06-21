@@ -2,7 +2,7 @@
 
 Placeholder directory.
 
-As of v0.0.7 the rules used by Lumo tools (touch-target thresholds,
+As of v0.2.2 the rules used by Lumo tools (touch-target thresholds,
 animation ranges, platform-specific defaults, parity whitelists, default
 spacing / radius scales) still live **inline** in each tool's source
 code:
@@ -16,6 +16,8 @@ code:
   (`.git`, `build`, `Pods`, `node_modules`, etc.)
 - `tools/lumo/figma/core.py` — Figma API base URL, default missing-token
   threshold, supported Figma variable types
+- `tools/lumo/render/core.py` — Compose / SwiftUI AST layout defaults,
+  platform atom sizes, and unresolved-reason labels
 
 `lumo-audit` and `lumo-source` share the same scale defaults today via
 direct imports — not via this directory. So far that has been adequate;

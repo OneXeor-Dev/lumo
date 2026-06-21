@@ -21,10 +21,30 @@ const execFileP = promisify(execFile);
 export const LUMO_HOME = path.join(os.homedir(), ".lumo");
 export const VENV_DIR = path.join(LUMO_HOME, "venv");
 const BIN_DIR = process.platform === "win32" ? "Scripts" : "bin";
+export const LUMO_BINARIES = [
+  "lumo-wcag",
+  "lumo-theory",
+  "lumo-parity",
+  "lumo-source",
+  "lumo-audit",
+  "lumo-figma",
+  "lumo-render",
+  "lumo-mcp",
+];
 
 export function venvBinary(name) {
   const ext = process.platform === "win32" ? ".exe" : "";
   return path.join(VENV_DIR, BIN_DIR, `${name}${ext}`);
+}
+
+function parsePythonVersion(output) {
+  const match = output.match(/Python (\d+)\.(\d+)/);
+  if (!match) return null;
+  return { major: Number(match[1]), minor: Number(match[2]) };
+}
+
+function isSupportedPythonVersion(version) {
+  return Boolean(version && (version.major > 3 || (version.major === 3 && version.minor >= 10)));
 }
 
 /** Returns the first usable Python interpreter or throws with install hint. */
@@ -32,18 +52,15 @@ export function findPython() {
   const candidates =
     process.platform === "win32"
       ? [["py", "-3"], ["python3"], ["python"]]
-      : [["python3"], ["python"]];
+      : [["python3"], ["/opt/homebrew/bin/python3"], ["/usr/local/bin/python3"], ["python"]];
 
   for (const [cmd, ...args] of candidates) {
     const result = spawnSync(cmd, [...args, "--version"], { encoding: "utf8" });
     if (result.status !== 0) continue;
     const out = (result.stdout || result.stderr || "").trim();
-    const match = out.match(/Python (\d+)\.(\d+)/);
-    if (!match) continue;
-    const major = Number(match[1]);
-    const minor = Number(match[2]);
-    if (major < 3 || (major === 3 && minor < 10)) continue;
-    return { cmd, args, version: `${major}.${minor}` };
+    const version = parsePythonVersion(out);
+    if (!isSupportedPythonVersion(version)) continue;
+    return { cmd, args, version: `${version.major}.${version.minor}` };
   }
 
   throw new Error(
@@ -54,11 +71,23 @@ export function findPython() {
   );
 }
 
+function existingVenvIsUsable() {
+  const python = venvBinary("python");
+  if (!fs.existsSync(VENV_DIR) || !fs.existsSync(python)) return false;
+  const result = spawnSync(python, ["--version"], { encoding: "utf8" });
+  if (result.status !== 0) return false;
+  const out = (result.stdout || result.stderr || "").trim();
+  return isSupportedPythonVersion(parsePythonVersion(out));
+}
+
 /** Create ~/.lumo/venv if it doesn't already exist. */
 export async function ensureVenv() {
   fs.mkdirSync(LUMO_HOME, { recursive: true });
-  if (fs.existsSync(VENV_DIR) && fs.existsSync(venvBinary("python"))) {
+  if (existingVenvIsUsable()) {
     return; // already there
+  }
+  if (fs.existsSync(VENV_DIR)) {
+    fs.rmSync(VENV_DIR, { recursive: true, force: true });
   }
   const py = findPython();
   await execFileP(py.cmd, [...py.args, "-m", "venv", VENV_DIR]);
@@ -73,20 +102,24 @@ export async function ensureVenv() {
  */
 export async function installLumoTools(opts = {}) {
   await ensureVenv();
-  const pip = venvBinary("pip");
+  const python = venvBinary("python");
+  await execFileP(
+    python,
+    ["-m", "pip", "install", "--upgrade", "pip", "setuptools", "wheel"],
+    { maxBuffer: 20 * 1024 * 1024 }
+  );
   const args = ["install", "--upgrade"];
   if (opts.source) {
     args.push("-e", opts.source);
   } else {
     args.push("lumo-mobile");
   }
-  await execFileP(pip, args, { maxBuffer: 20 * 1024 * 1024 });
+  await execFileP(python, ["-m", "pip", ...args], { maxBuffer: 20 * 1024 * 1024 });
 }
 
 /** Sanity check: each registered CLI binary actually exists in the venv. */
 export function listInstalledBinaries() {
-  const names = ["lumo-wcag", "lumo-theory", "lumo-parity", "lumo-source", "lumo-audit", "lumo-figma", "lumo-mcp"];
-  return names.map((name) => ({
+  return LUMO_BINARIES.map((name) => ({
     name,
     path: venvBinary(name),
     exists: fs.existsSync(venvBinary(name)),

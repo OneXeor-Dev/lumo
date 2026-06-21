@@ -143,10 +143,10 @@ pipx install lumo-mobile          # global CLI install
 pip install lumo-mobile           # any existing venv
 ```
 
-Gives you the seven CLIs (`lumo-wcag`, `lumo-theory`, `lumo-parity`,
-`lumo-source`, `lumo-audit`, `lumo-figma`, `lumo-mcp`) without touching
-any AI client config. Use this if you want to wire Lumo into CI, scripts,
-or a custom workflow.
+Gives you the eight CLIs (`lumo-wcag`, `lumo-theory`, `lumo-parity`,
+`lumo-source`, `lumo-audit`, `lumo-figma`, `lumo-render`, `lumo-mcp`)
+without touching any AI client config. Use this if you want to wire Lumo
+into CI, scripts, or a custom workflow.
 
 ### 5. Git clone + manual
 
@@ -244,9 +244,10 @@ lumo-parity diff \
   --android ../examples/parity_android.json \
   --ios     ../examples/parity_ios.json \
   --config  ../examples/lumo.config.json
+lumo-render compose --file ../examples/source_bad_compose.kt --json
 
 # Tests
-pytest        # 67 passing
+pytest
 ```
 
 ## License

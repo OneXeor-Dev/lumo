@@ -8,8 +8,6 @@ must never produce findings.
 
 from __future__ import annotations
 
-import pytest
-
 from lumo.source.core import (
     DEFAULT_RADIUS_SCALE_DP,
     DEFAULT_SPACING_SCALE_DP,

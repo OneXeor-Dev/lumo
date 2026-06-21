@@ -36,7 +36,6 @@ from mcp.server.fastmcp import FastMCP
 
 from lumo.audit.core import AuditConfig, scan_repo
 from lumo.figma.core import (
-    FigmaApiError,
     diff_against_audit as figma_diff_against_audit,
     fetch_node_layout as figma_fetch_node_layout,
     fetch_tokens as figma_fetch_tokens,

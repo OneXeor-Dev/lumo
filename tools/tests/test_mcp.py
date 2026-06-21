@@ -23,7 +23,6 @@ from lumo.mcp.server import (  # noqa: F401  (lumo_figma_diff used by test below
     lumo_wcag_fix,
     server,
 )
-from lumo.parity.core import diff
 from lumo.render.core import render_compose, render_swiftui
 from lumo.source.core import check_compose, check_swiftui
 from lumo.theory.core import Element, Layout, Screen, check_layout

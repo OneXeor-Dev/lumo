@@ -57,6 +57,10 @@ export async function initCommand(opts) {
   }
   process.stdout.write(green("✓ Python tools installed\n"));
   bins.forEach((b) => process.stdout.write(dim(`  ${b.name}  ${b.path}\n`)));
+  const mcpBin = bins.find((b) => b.name === "lumo-mcp");
+  if (!mcpBin) {
+    throw new Error("lumo-mcp binary is missing from the installer binary registry.");
+  }
 
   const skillSource = findSkillSource();
 
@@ -65,7 +69,7 @@ export async function initCommand(opts) {
     if (!client.skillDir) {
       process.stdout.write(dim("  generic mode — nothing to copy automatically.\n"));
       process.stdout.write(dim("  Skill bundle is at: ") + skillSource + "\n");
-      process.stdout.write(dim("  MCP server command: ") + listInstalledBinaries()[3].path + "\n");
+      process.stdout.write(dim("  MCP server command: ") + mcpBin.path + "\n");
       continue;
     }
 

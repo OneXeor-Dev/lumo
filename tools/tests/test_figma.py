@@ -10,14 +10,12 @@ We never call the real Figma API in tests:
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 import httpx
 import pytest
 
 from lumo.figma.core import (
-    FIGMA_API_BASE,
     FigmaApiError,
     FigmaToken,
     FigmaTokens,

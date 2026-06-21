@@ -280,15 +280,24 @@ class Element:
 
     def to_dict(self) -> dict[str, object]:
         out: dict[str, object] = {"id": self.id, "role": self.role, "source": self.source}
-        if self.x is not None: out["x"] = self.x
-        if self.y is not None: out["y"] = self.y
-        if self.w is not None: out["w"] = self.w
-        if self.h is not None: out["h"] = self.h
-        if self.group is not None: out["group"] = self.group
-        if self.weight is not None: out["weight"] = self.weight
-        if self.reason is not None: out["reason"] = self.reason
-        if self.fg is not None: out["fg"] = self.fg
-        if self.bg is not None: out["bg"] = self.bg
+        if self.x is not None:
+            out["x"] = self.x
+        if self.y is not None:
+            out["y"] = self.y
+        if self.w is not None:
+            out["w"] = self.w
+        if self.h is not None:
+            out["h"] = self.h
+        if self.group is not None:
+            out["group"] = self.group
+        if self.weight is not None:
+            out["weight"] = self.weight
+        if self.reason is not None:
+            out["reason"] = self.reason
+        if self.fg is not None:
+            out["fg"] = self.fg
+        if self.bg is not None:
+            out["bg"] = self.bg
         return out
 
 

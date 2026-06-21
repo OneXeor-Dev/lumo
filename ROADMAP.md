@@ -111,7 +111,7 @@ Goal: `npx @onexeor/lumo init` works end-to-end with four demonstrable tools (wc
 | 1 | `wcag_validator` | ✅ Shipped | W3C luminance formula + OKLCH auto-correct that preserves chroma and hue. 28 tests against WebAIM / Material / Apple anchors. |
 | 2 | `theory_check` | ✅ Shipped | Fitts (undersized + relative difficulty for primary), Hick overload, Gestalt proximity (v0.2.1 nested-container skip), reach rules, color contrast (v0.2.2, AA/AAA via lumo-wcag, text-only). Nielsen heuristics intentionally not in the tool (not reliably numeric). |
 | 3 | `platform_parity` | ✅ Shipped | Android (dp) vs iOS (pt) diff. Component presence, sizing diff, design-system token validation. Platform-specific defaults whitelisted (44 pt vs 48 dp etc.). 14 tests. |
-| 4 | `mcp_server` | ✅ Shipped | Stdio MCP server (`lumo-mcp`) exposing every Lumo tool to Claude Code, Cursor, Continue, Aider, Goose, Zed, Codex. As of v0.0.8 it registers 8 functions (`lumo_wcag_check`, `lumo_wcag_fix`, `lumo_theory_check`, `lumo_parity_diff`, `lumo_source_check_compose`, `lumo_source_check_swiftui`, `lumo_audit_scan`, `lumo_figma_diff`) with registration + wrapper-parity tests for each. |
+| 4 | `mcp_server` | ✅ Shipped | Stdio MCP server (`lumo-mcp`) exposing every Lumo tool to Claude Code, Cursor, Continue, Aider, Goose, Zed, Codex. As of v0.2.2 it registers 11 functions (`lumo_wcag_check`, `lumo_wcag_fix`, `lumo_theory_check`, `lumo_parity_diff`, `lumo_source_check_compose`, `lumo_source_check_swiftui`, `lumo_audit_scan`, `lumo_figma_diff`, `lumo_figma_render`, `lumo_render_compose`, `lumo_render_swiftui`) with registration + wrapper-parity tests for each. |
 
 ### Distribution (five install paths, all wired up)
 
@@ -126,8 +126,9 @@ Goal: `npx @onexeor/lumo init` works end-to-end with four demonstrable tools (wc
 ### Data (ships with the package)
 
 Rules are currently inline in each tool — adequate while the rule count is
-small. They will move to `data/` once a second consumer (Phase 2 audit)
-needs to read them.
+small and each constant still has one source of truth. They will move to
+`data/` when a third consumer needs the same rule and a rebuild becomes
+painful.
 
 ### Skill structure (current)
 
@@ -146,8 +147,9 @@ lumo/
 │       ├── parity/       # ✅ tool 3
 │       ├── source/       # ✅ tool 4 — Compose + SwiftUI AST checks
 │       ├── audit/        # ✅ tool 5 — whole-repo aggregator
-│       ├── figma/        # ✅ tool 6 — Figma token diff
-│       └── mcp/          # ✅ MCP server (8 functions)
+│       ├── figma/        # ✅ tool 6 — Figma token diff + frame render
+│       ├── render/       # ✅ tool 7 — Compose + SwiftUI AST layout evaluator
+│       └── mcp/          # ✅ MCP server (11 functions)
 ├── data/                 # placeholder — rules still inline
 ├── examples/             # ✅ layout pairs + .kt / .swift anchors + lumo.config.json
 └── installer/            # ✅ @onexeor/lumo on npm
