@@ -76,6 +76,12 @@ class Element:
     # when both are present and role is `text`.
     fg: str | None = None
     bg: str | None = None
+    # Touch container size, when the visible element is smaller than the
+    # actual hit target. Material `IconButton` is the canonical case:
+    # 24dp visible glyph inside a 48dp invisible touch container. When
+    # set, the Fitts undersized-target check uses these instead of w/h.
+    hit_w: float | None = None
+    hit_h: float | None = None
 
     @property
     def cx(self) -> float:
@@ -88,6 +94,24 @@ class Element:
     @property
     def smaller_side(self) -> float:
         return min(self.w, self.h)
+
+    @property
+    def touch_smaller_side(self) -> float:
+        """Smaller side of the touch container — uses hit_w/hit_h when
+        explicitly declared, else falls back to the visible bbox.
+
+        Rationale: Material `IconButton` and SwiftUI `Button` give you a
+        ≥48dp / 44pt touch target by default even when the visible glyph
+        is 24dp. Without this distinction the Fitts check fires on every
+        compliant icon button.
+        """
+        w = self.hit_w if self.hit_w is not None else self.w
+        h = self.hit_h if self.hit_h is not None else self.h
+        return min(w, h)
+
+    @property
+    def has_declared_hit_area(self) -> bool:
+        return self.hit_w is not None or self.hit_h is not None
 
     def is_interactive(self) -> bool:
         return self.role in {
@@ -159,18 +183,105 @@ def _fitts_index_of_difficulty(distance: float, target_smaller_side: float) -> f
 
 
 # ============================================================================
-# Check 1 — Fitts difficulty (relative)
+# Check 1a — Tap-target minimum (touch container, not visible glyph)
 # ============================================================================
 
 
+def _tap_target_finding(el: Element, layout: Layout, touch_side: float, min_target: float) -> Finding:
+    """Build a `fitts_undersized_target` finding for one element.
+
+    Two paths:
+    - hit_w/hit_h declared and still under minimum → HIGH (real defect).
+    - Only visible bbox available → MEDIUM "verify in code" (we cannot
+      tell from a Figma frame whether Compose's default 48dp IconButton
+      wrapping is in place).
+    """
+    unit = layout.screen.unit
+    if el.has_declared_hit_area:
+        return Finding(
+            check="fitts_undersized_target",
+            severity="high",
+            confidence=layout.source,
+            elements=(el.id,),
+            message=(
+                f"Element '{el.id}' has a touch container of "
+                f"{touch_side:.0f}{unit} on its shorter side, below the "
+                f"minimum tap target ({min_target:.0f}{unit})."
+            ),
+            recommendation=(
+                f"Increase the hit area to at least {min_target:.0f}{unit} "
+                "(Compose: Modifier.minimumInteractiveComponentSize; "
+                "SwiftUI: .contentShape with padding; "
+                "UIKit: hitTest override)."
+            ),
+            metric={"smaller_side": touch_side, "minimum": min_target},
+        )
+    return Finding(
+        check="fitts_undersized_target",
+        severity="medium",
+        confidence=layout.source,
+        elements=(el.id,),
+        message=(
+            f"Element '{el.id}' is {touch_side:.0f}{unit} on its shorter "
+            f"side (visible bounds). Verify the touch container is "
+            f"≥{min_target:.0f}{unit} — Compose IconButton and SwiftUI "
+            f"Button both wrap their content in a {min_target:.0f}{unit} "
+            f"hit area by default, so the visible glyph being smaller is "
+            f"normal."
+        ),
+        recommendation=(
+            "If the element is a bare Icon / Image / Text used as a tap "
+            "target (no IconButton / Button wrapper), extend the hit area "
+            "(Compose: Modifier.minimumInteractiveComponentSize; "
+            "SwiftUI: .contentShape with padding; UIKit: hitTest override). "
+            "Add `hit_w`/`hit_h` to this element in the layout JSON when "
+            "known to upgrade this finding to a definite fail or clear it."
+        ),
+        metric={"smaller_side": touch_side, "minimum": min_target},
+    )
+
+
+def _check_tap_target(layout: Layout) -> list[Finding]:
+    """Emit `fitts_undersized_target` for every interactive element whose
+    touch container is below the platform minimum (48dp Android, 44pt iOS).
+
+    Independent of Fitts relative-difficulty: an undersized target is a
+    defect regardless of how it compares to other targets on screen.
+    """
+    min_target = layout.screen.min_tap_target
+    findings: list[Finding] = []
+    for el in layout.elements:
+        if not el.is_interactive():
+            continue
+        touch_side = el.touch_smaller_side
+        if touch_side >= min_target:
+            continue
+        findings.append(_tap_target_finding(el, layout, touch_side, min_target))
+    return findings
+
+
+# ============================================================================
+# Check 1b — Fitts relative difficulty
+# ============================================================================
+
+
+# Relative-difficulty threshold: a target that costs ≥40% more movement-cost
+# bits than the median target on this screen.
+FITTS_DIFFICULTY_RATIO = 1.4
+
+
 def _check_fitts(layout: Layout) -> list[Finding]:
+    """Flag primary actions whose Fitts index of difficulty is much higher
+    than the median interactive target on the screen.
+
+    Uses screen centre as the reference origin (most defensible default
+    for "first tap on entering screen"). The undersized-target check is
+    its own function — see `_check_tap_target`.
+    """
     interactive = [e for e in layout.elements if e.is_interactive()]
     if len(interactive) < 2:
         return []
 
-    # Use screen centre as the reference origin for movement distance — this is
-    # the most defensible default for "first tap on entering screen". Future
-    # versions can take a hand/origin parameter from the user.
     origin_x = layout.screen.width / 2
     origin_y = layout.screen.height / 2
 
@@ -180,64 +291,33 @@ def _check_fitts(layout: Layout) -> list[Finding]:
         idx = _fitts_index_of_difficulty(d, el.smaller_side)
         ids.append((el, idx))
 
-    if not ids:
+    median_id = sorted(idx for _, idx in ids)[len(ids) // 2]
+    if median_id <= 0:
         return []
 
-    median_id = sorted(idx for _, idx in ids)[len(ids) // 2]
     findings: list[Finding] = []
-
-    # Below tap-target minimum is critical regardless of Fitts ratio.
-    min_target = layout.screen.min_tap_target
-    for el, _idx in ids:
-        if el.smaller_side < min_target:
-            findings.append(
-                Finding(
-                    check="fitts_undersized_target",
-                    severity="high",
-                    confidence=layout.source,
-                    elements=(el.id,),
-                    message=(
-                        f"Element '{el.id}' is {el.smaller_side:.0f}{layout.screen.unit} "
-                        f"on its shorter side, below the minimum tap target "
-                        f"({min_target:.0f}{layout.screen.unit})."
-                    ),
-                    recommendation=(
-                        "Increase the touchable area to at least "
-                        f"{min_target:.0f}{layout.screen.unit}, either by "
-                        "growing the element or by extending the hit area "
-                        "(Compose: Modifier.minimumInteractiveComponentSize; "
-                        "SwiftUI: .contentShape; UIKit: hitTest override)."
-                    ),
-                    metric={"smaller_side": el.smaller_side, "minimum": min_target},
-                )
-            )
-
-    # Relative Fitts difficulty: targets meaningfully harder than the median.
-    # Threshold 1.4 ≈ a target that costs ~40% more movement-cost bits than
-    # the median target on this screen.
     for el, idx in ids:
-        if median_id > 0 and idx / median_id >= 1.4 and el.weight == "primary":
-            findings.append(
-                Finding(
-                    check="fitts_difficult_primary",
-                    severity="medium",
-                    confidence=layout.source,
-                    elements=(el.id,),
-                    message=(
-                        f"Primary action '{el.id}' has Fitts index of difficulty "
-                        f"{idx:.2f}, while the median interactive target on this "
-                        f"screen is {median_id:.2f} "
-                        f"({idx / median_id:.2f}× harder)."
-                    ),
-                    recommendation=(
-                        "Primary actions should be among the easiest-to-acquire "
-                        "targets on the screen. Move it closer to the thumb-rest "
-                        "area (bottom-centre on phones) or enlarge it."
-                    ),
-                    metric={"id_target": idx, "id_median": median_id},
-                )
-            )
-
+        if el.weight != "primary":
+            continue
+        if idx / median_id < FITTS_DIFFICULTY_RATIO:
+            continue
+        findings.append(Finding(
+            check="fitts_difficult_primary",
+            severity="medium",
+            confidence=layout.source,
+            elements=(el.id,),
+            message=(
+                f"Primary action '{el.id}' has Fitts index of difficulty "
+                f"{idx:.2f}, while the median interactive target on this "
+                f"screen is {median_id:.2f} ({idx / median_id:.2f}× harder)."
+            ),
+            recommendation=(
+                "Primary actions should be among the easiest-to-acquire "
+                "targets on the screen. Move it closer to the thumb-rest "
+                "area (bottom-centre on phones) or enlarge it."
+            ),
+            metric={"id_target": idx, "id_median": median_id},
+        ))
     return findings
 
 
@@ -503,6 +583,7 @@ def _check_color_contrast(layout: Layout) -> list[Finding]:
 
 def check_layout(layout: Layout) -> ReportSummary:
     findings: list[Finding] = []
+    findings.extend(_check_tap_target(layout))
     findings.extend(_check_fitts(layout))
     findings.extend(_check_hick(layout))
     findings.extend(_check_gestalt_proximity(layout))

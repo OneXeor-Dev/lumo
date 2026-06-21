@@ -71,6 +71,8 @@ def _layout_from_dict(data: dict[str, Any]) -> Layout:
                 weight=e.get("weight", "equal"),
                 fg=e.get("fg"),
                 bg=e.get("bg"),
+                hit_w=float(e["hit_w"]) if e.get("hit_w") is not None else None,
+                hit_h=float(e["hit_h"]) if e.get("hit_h") is not None else None,
             )
         )
     return Layout(

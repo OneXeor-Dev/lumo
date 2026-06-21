@@ -1,6 +1,6 @@
 [project]
 name = "lumo-mobile"
-version = "0.2.2"
+version = "0.2.3"
 description = "Deterministic mobile UI/UX checks for Compose / SwiftUI / XML / UIKit — WCAG validator with OKLCH auto-correct, cross-platform parity diff, cognitive-science (Fitts / Hick / Gestalt) layout checks. Ships with an MCP server."
 readme = "README.md"
 license = "MIT"
@@ -24,7 +24,7 @@ classifiers = [
     "Topic :: Software Development :: Quality Assurance",
 ]
 dependencies = [
-    "numpy>=1.26",
+    "numpy>=1.26,<2.5",
     "mcp>=1.27",
     "tree-sitter>=0.23",
     "tree-sitter-kotlin>=1.1",
@@ -48,6 +48,9 @@ dev = [
 viz = [
     "pillow>=10.0",
 ]
+spec = [
+    "anthropic>=0.40",
+]
 
 [project.scripts]
 lumo-wcag = "lumo.wcag.cli:main"
@@ -57,6 +60,7 @@ lumo-source = "lumo.source.cli:main"
 lumo-audit = "lumo.audit.cli:main"
 lumo-figma = "lumo.figma.cli:main"
 lumo-render = "lumo.render.cli:main"
+lumo-spec = "lumo.spec.cli:main"
 lumo-mcp = "lumo.mcp.server:main"
 
 [build-system]
